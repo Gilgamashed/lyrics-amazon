@@ -94,3 +94,11 @@
 - **Prompt:** "Let's create a 03_SPEC_UX.md file that focuses on phase 3 of the PROJECT_OVERVIEW.MD, following the same pattern as the 01_SPEC_SCAFFOLD.md." — then "Let's proceed using the 03_SPEC_FLOATING_WINDOW.md file name."
 - **Result:** Created `specs/03_SPEC_FLOATING_WINDOW.md` (Objective, Context with gap-closure, Tasks & Responsibilities, DoD) covering drag/resize glass window, opacity/blur/pin/minimize/presets, karaoke and full-sheet modes, and the Genius annotations drawer.
 - **Human Review:** Chose filename `03_SPEC_FLOATING_WINDOW.md` (per `00_AI-SAFE.md` example); approved gap-closure framing with all DoD items checked.
+
+## [2026-10-12] Draft Phase 4 playback sync spec
+
+- **Tool:** OpenAI Codex
+- **Context:** Continue SpecDD execution with Phase 4 (playback sync) of the roadmap.
+- **Prompt:** "Now, let's create a 04_SPEC_LYRICSYNC.md file that focuses on phase 4 of the PROJECT_OVERVIEW.MD, following the same pattern as the 01_SPEC_SCAFFOLD.md."
+- **Result:** Created `specs/04_SPEC_LYRICSYNC.md` (Objective, Context with gap-closure, Tasks & Responsibilities, DoD) covering the playback timer, media-session integration (metadata + play/pause/seekto), and `±0.5s`/`±0.1s` offset calibration.
+- **Human Review:** Confirmed filename `04_SPEC_LYRICSYNC.md`; approved gap-closure framing with all DoD items checked.
