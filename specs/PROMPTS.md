@@ -86,3 +86,11 @@
 - **Prompt:** "I'm considering adding a cache for recently played song data and run runtime smoke-verification with and without cache, documenting the finding in the README.md. How should we approach this?"
 - **Result:** Added `src/services/lyricsCache.ts` (memory-only, bounded 20 entries, 7-day TTL, `title|artist` key, `useCache` bypass in `fetchLyrics`), `scripts/smoke-lyrics.ts` (`npm run smoke`), README "Lyrics Cache" + "Runtime Smoke-Verification" sections with measured timings, and updated the Phase 2 spec DoD.
 - **Human Review:** Approved scope (lyrics-only), persistence (memory-only), and live smoke run. Live result: cache hit 0 ms vs 400 ms cold fetch.
+
+## [2026-10-12] Draft Phase 3 floating window spec
+
+- **Tool:** OpenAI Codex
+- **Context:** Continue SpecDD execution with Phase 3 (floating window UX) of the roadmap.
+- **Prompt:** "Let's create a 03_SPEC_UX.md file that focuses on phase 3 of the PROJECT_OVERVIEW.MD, following the same pattern as the 01_SPEC_SCAFFOLD.md." — then "Let's proceed using the 03_SPEC_FLOATING_WINDOW.md file name."
+- **Result:** Created `specs/03_SPEC_FLOATING_WINDOW.md` (Objective, Context with gap-closure, Tasks & Responsibilities, DoD) covering drag/resize glass window, opacity/blur/pin/minimize/presets, karaoke and full-sheet modes, and the Genius annotations drawer.
+- **Human Review:** Chose filename `03_SPEC_FLOATING_WINDOW.md` (per `00_AI-SAFE.md` example); approved gap-closure framing with all DoD items checked.
