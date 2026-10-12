@@ -1,0 +1,6 @@
+{
+  "summary":  "Implementation plan for a standalone Amazon Music floating lyrics companion featuring hybrid track detection (Media Session, track search, quick input), dual-mode lyrics display (synchronized karaoke and full text sheet), Genius song trivia/annotations, and a translucent draggable, resizable glass window with opacity and pin controls.",
+  "updatedAt":  "2026-10-11T15:31:54.991948224Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}

@@ -1,0 +1,199 @@
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Song, LyricsData, WindowState, WindowPreset } from './types/lyrics';
+import { CURATED_TRACKS, CURATED_LYRICS_DATA } from './services/curatedTracks';
+import { fetchLyrics } from './services/lyricsService';
+import { AmazonMusicBar } from './components/AmazonMusicBar';
+import { FloatingLyricsWindow } from './components/FloatingLyricsWindow';
+import { BackgroundDesktop } from './components/BackgroundDesktop';
+
+export default function App() {
+  const [currentSong, setCurrentSong] = useState<Song>(CURATED_TRACKS[0]);
+  const [lyricsData, setLyricsData] = useState<LyricsData>(
+    CURATED_LYRICS_DATA['espresso-sabrina-carpenter']
+  );
+  const [isLoadingLyrics, setIsLoadingLyrics] = useState(false);
+
+  // Playback & Timing state
+  const [isPlaying, setIsPlaying] = useState(true);
+  const [currentTimeMs, setCurrentTimeMs] = useState(0);
+  const [syncOffsetMs, setSyncOffsetMs] = useState(0);
+  const [isMediaSessionActive, setIsMediaSessionActive] = useState(true);
+
+  // Background environment theme
+  const [backgroundTheme, setBackgroundTheme] = useState<'amazon-music' | 'studio' | 'minimal'>(
+    'amazon-music'
+  );
+
+  // Floating Window State
+  const [windowState, setWindowState] = useState<WindowState>(() => {
+    // Initial responsive window position
+    const screenW = typeof window !== 'undefined' ? window.innerWidth : 1200;
+    const initialWidth = Math.min(500, screenW - 40);
+    const initialX = Math.max(20, screenW - initialWidth - 40);
+
+    return {
+      x: initialX,
+      y: 90,
+      width: initialWidth,
+      height: 600,
+      opacity: 0.9,
+      blur: 16,
+      isPinned: true,
+      isMinimized: false,
+      isMaximized: false,
+      viewMode: 'karaoke',
+      theme: 'acrylic',
+      fontSize: 'medium',
+      autoScroll: true,
+      showAnnotations: false,
+    };
+  });
+
+  // Track playback time accurately using Date.now()
+  const lastTickTimeRef = useRef<number>(Date.now());
+
+  useEffect(() => {
+    let animationFrameId: number;
+
+    const tick = () => {
+      const now = Date.now();
+      const delta = now - lastTickTimeRef.current;
+      lastTickTimeRef.current = now;
+
+      if (isPlaying) {
+        setCurrentTimeMs((prev) => {
+          const next = prev + delta;
+          if (next >= currentSong.durationMs) {
+            // Loop or reset
+            return 0;
+          }
+          return next;
+        });
+      }
+
+      animationFrameId = requestAnimationFrame(tick);
+    };
+
+    lastTickTimeRef.current = Date.now();
+    animationFrameId = requestAnimationFrame(tick);
+
+    return () => cancelAnimationFrame(animationFrameId);
+  }, [isPlaying, currentSong.durationMs]);
+
+  // When song changes, fetch lyrics
+  const handleSelectSong = async (song: Song) => {
+    setCurrentSong(song);
+    setCurrentTimeMs(0);
+    setIsLoadingLyrics(true);
+
+    try {
+      const data = await fetchLyrics(song);
+      setLyricsData(data);
+    } catch {
+      // Keep previous or fallback
+    } finally {
+      setIsLoadingLyrics(false);
+    }
+  };
+
+  // Media Session API Sync
+  useEffect(() => {
+    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+      try {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: currentSong.title,
+          artist: currentSong.artist,
+          album: currentSong.album,
+          artwork: [
+            {
+              src: currentSong.albumArt,
+              sizes: '300x300',
+              type: 'image/jpeg',
+            },
+          ],
+        });
+
+        navigator.mediaSession.setActionHandler('play', () => setIsPlaying(true));
+        navigator.mediaSession.setActionHandler('pause', () => setIsPlaying(false));
+        navigator.mediaSession.setActionHandler('seekto', (details) => {
+          if (details.seekTime !== undefined) {
+            setCurrentTimeMs(details.seekTime * 1000);
+          }
+        });
+      } catch {
+        // Media session unsupported in some restricted iframes
+      }
+    }
+  }, [currentSong]);
+
+  const handleUpdateWindowState = useCallback((updates: Partial<WindowState>) => {
+    setWindowState((prev) => ({ ...prev, ...updates }));
+  }, []);
+
+  const handleApplyPreset = (preset: WindowPreset) => {
+    const screenW = window.innerWidth;
+    const screenH = window.innerHeight;
+    const targetW = Math.min(preset.width, screenW - 40);
+    const targetH = Math.min(preset.height, screenH - 120);
+
+    let targetX = screenW - targetW - 30;
+    let targetY = 90;
+
+    if (preset.id === 'stage') {
+      targetX = Math.max(20, (screenW - targetW) / 2);
+    } else if (preset.id === 'compact') {
+      targetX = screenW - targetW - 24;
+      targetY = screenH - targetH - 24;
+    }
+
+    setWindowState((prev) => ({
+      ...prev,
+      width: targetW,
+      height: targetH,
+      x: targetX,
+      y: targetY,
+      isMaximized: false,
+      isMinimized: false,
+    }));
+  };
+
+  return (
+    <div className="relative w-screen h-screen overflow-hidden bg-slate-950 font-sans text-slate-100 flex flex-col select-none">
+      {/* ─── Top Amazon Music Bar (Controls, Search, Auto-Detect, Offset) ── */}
+      <AmazonMusicBar
+        currentSong={currentSong}
+        isPlaying={isPlaying}
+        currentTimeMs={currentTimeMs}
+        syncOffsetMs={syncOffsetMs}
+        isMediaSessionActive={isMediaSessionActive}
+        onTogglePlay={() => setIsPlaying((prev) => !prev)}
+        onSeek={(timeMs) => setCurrentTimeMs(timeMs)}
+        onOffsetChange={(offsetMs) => setSyncOffsetMs(offsetMs)}
+        onSelectSong={handleSelectSong}
+        onToggleMediaSession={() => setIsMediaSessionActive((prev) => !prev)}
+      />
+
+      {/* ─── Mock Desktop Canvas Surface ─────────────────────────────── */}
+      <div className="relative flex-1 w-full h-full overflow-hidden">
+        {/* Underneath desktop background that shines through the translucent glass window */}
+        <BackgroundDesktop
+          currentSong={currentSong}
+          isPlaying={isPlaying}
+          onApplyPreset={handleApplyPreset}
+          backgroundTheme={backgroundTheme}
+          onChangeBackgroundTheme={setBackgroundTheme}
+        />
+
+        {/* ─── The Floating Resizable Lyrics Glass Window ─────────────── */}
+        <FloatingLyricsWindow
+          windowState={windowState}
+          lyricsData={lyricsData}
+          currentTimeMs={currentTimeMs}
+          syncOffsetMs={syncOffsetMs}
+          onUpdateWindowState={handleUpdateWindowState}
+          onSeek={(timeMs) => setCurrentTimeMs(timeMs)}
+        />
+      </div>
+    </div>
+  );
+}

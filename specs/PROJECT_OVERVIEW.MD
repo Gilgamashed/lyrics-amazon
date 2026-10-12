@@ -1,0 +1,110 @@
+# Lyrics for Amazon Music — Project Overview & Target Architecture
+**Standalone app:** Amazon Music Floating Lyrics
+
+---
+
+## 1. Project Context & Objective
+
+The project is a standalone, desktop-style companion for the **Amazon Music** music player. Its goal is to retrieve the lyrics of the song currently playing on Amazon Music — from providers such as **Genius** and **LRCLIB** — and display them in a **floating, resizable window** that sits above the user's workspace.
+
+The app is developed incrementally using **SpecDD (Specification-Driven Development)**, starting from a target architecture (described in this document) and evolving through a phased delivery roadmap.
+
+Two defining requirements shape the architecture:
+
+1. **Provider-Agnostic AI Fallback**: When lyrics are missing from Genius/LRCLIB, the app can synthesize synced lyrics using an AI provider. Rather than being hardwired to a single vendor, this is a **customizable AI placeholder** — a pluggable, OpenAI-compatible adapter configurable by endpoint, model, and API key (in-app and via environment variables). Gemini is one optional adapter, not a dependency.
+
+2. **Desktop-App Track Detection**: Beyond the browser Media Session API (which only detects the Amazon Music *web player* inside the same browser), the app detects songs played in the **Amazon Music desktop app** through a **native companion bridge** that reads OS-level now-playing metadata.
+
+---
+
+## 2. What Is "Lyrics for Amazon Music"
+
+The application connects Amazon Music listeners with lyrics and song meanings from Genius and synced-lyric databases. When a user is playing a track on Amazon Music (web player, desktop app, or mobile), the app detects or searches the track, pulls high-precision timestamped lyrics, fetches Genius annotations/background trivia, and displays everything inside an ultra-sleek, floating translucent glass window that can sit above the workspace.
+
+### Core Pillars
+
+1. **Track Detection (Hybrid)**
+   - Automatic detection via the browser `navigator.mediaSession` API and audio listener (Amazon Music **web player**).
+   - **Native companion bridge** for the **Amazon Music desktop app** (Windows → System Media Transport Controls; macOS → MediaRemote; Linux → MPRIS over D-Bus) exposed to the UI over a localhost WebSocket/HTTP API.
+   - Amazon Music live track quick-input bar and full song/artist search with instant search suggestions.
+
+2. **Multi-Provider Lyric Engine**
+   - **LRCLIB** for millisecond-precision, synchronized (LRC) lyrics.
+   - **Genius** for rich text, verified annotations, and track trivia.
+   - **Customizable AI fallback adapter** for tracks missing timestamped metadata — synchronizes lyrics and generates annotations without vendor lock-in.
+
+3. **Floating Lyrics Window Experience**
+   - A frosted-glass window with custom translucency/opacity slider, background blur control, pinned overlay mode, corner/edge resize handles, minimize-to-floating-pill, and full-screen view.
+   - Instant toggle between **Synchronized Karaoke Mode** (word/line timing highlighting, auto-scroll, click-to-seek, sync-offset fine-tuning) and **Full Lyrics Sheet** (clean editorial layout, verse headers, font sizing, copy tool).
+
+---
+
+## 3. Target Architecture (Layered)
+
+The system is organized into 6 logical layers, designed to run standalone (browser window or packaged desktop app) with optional native companions:
+
+1. **Clients & Channels of Access**
+   - Amazon Music Web Player (in-browser detection).
+   - Amazon Music Desktop App (detection via the native companion).
+   - The floating lyrics HUD window itself (draggable, resizable, translatable).
+2. **Track Detection & Playback Sync**
+   - Browser `navigator.mediaSession` (web player) with play/pause/seek handlers.
+   - **Native Companion Bridge**: OS now-playing integration — Windows `GlobalSystemMediaTransportControlsSessionManager` (SMTC), macOS MediaRemote/`nowplaying-cli`, Linux MPRIS D-Bus — publishing track metadata over a localhost endpoint.
+   - Playback timer with `±0.5s` / `±0.1s` sync-offset calibration against the user's exact audio stream.
+3. **Lyric Services (Business Logic)**
+   - `src/services/lyricsService.ts`: unified search (`searchTracks`), retrieval and LRC parsing (`parseLrc`), and fallback generation (`fetchLyrics`, `createFallbackLyrics`).
+   - `src/services/curatedTracks.ts`: curated local database of trending/tracked songs for instant offline results.
+   - Domain types in `src/types/lyrics.ts`: `Song`, `LyricLine`, `LyricsData`, `GeniusAnnotation`, `WindowState`, `WindowPreset`.
+4. **Artificial Intelligence Layer (Pluggable)**
+   - A **customizable AI placeholder**: provider-agnostic adapter over an OpenAI-compatible chat/completions endpoint.
+   - Configurable via environment variables (`AI_PROVIDER_URL`, `AI_MODEL`, `AI_API_KEY`) and an in-app settings panel; no compile-time dependency on any single vendor.
+   - Used to synthesize synchronized lyrics and smart annotations when Genius/LRCLIB coverage is missing. Gemini (`@google/genai`) is an optional adapter, not a requirement.
+5. **UI & Window Experience**
+   - `src/components/AmazonMusicBar.tsx`: currently playing track controls, search with auto-suggestions, audio progress bar, sync calibration.
+   - `src/components/FloatingLyricsWindow.tsx`: draggable/resizable glass window with pointer-based dragging, multi-edge resizing, opacity/blur controls, pin, minimize-to-pill, and presets.
+   - `src/components/KaraokeLyricsView.tsx` and `src/components/FullSheetLyricsView.tsx`: the two display modes.
+   - `src/components/GeniusAnnotationsPanel.tsx`: trivia, behind-the-lyrics facts, and highlighted verse explanations.
+   - `src/components/BackgroundDesktop.tsx`: the mock desktop canvas beneath the translucent glass.
+6. **Quality, Packaging & Delivery**
+   - Vite build + TypeScript check (`tsc --noEmit`) for the web applet.
+   - Native packaging of the companion bridge (Electron or Tauri shell) for desktop-app detection on Windows, macOS, and Linux.
+   - Environment-driven configuration honored by AI Studio runtime (`.env` / secrets).
+
+---
+
+## 4. MVP Features (Global Definition of Done)
+
+The project is considered complete when it satisfies the following functional and architectural criteria:
+
+- ▶ **Hybrid track detection** — web-player via `navigator.mediaSession`, desktop-app via the native companion bridge, plus search/quick-input.
+- ▶ **Multi-provider lyrics** — LRCLIB synced lyrics, Genius annotations/trivia, and a **provider-agnostic AI fallback** for missing tracks.
+- ▶ **Dual display modes** — synchronized karaoke highlighting (auto-scroll, click-to-seek) and full lyrics sheet (verse headers, font sizing, copy).
+- ▶ **Floating window ergonomics** — drag anywhere, multi-direction resize, opacity (15–100%) and blur sliders, pin/always-on-top, minimize-to-floating-pill, maximize/presets.
+- ▶ **Sync calibration** — `±0.5s` / `±0.1s` offset controls keeping lyrics locked to the exact Amazon Music stream.
+- ▶ **AI placeholder configurability** — endpoint/model/key settable via env and in-app; zero coupling to a specific vendor.
+- ▶ **Standalone execution** — single-command run locally (`npm run dev`) and buildable for packaging as a desktop companion.
+
+---
+
+## 5. Delivery Roadmap
+
+| Phase | Deliverable / Milestone |
+| :--- | :--- |
+| **Phase 1** | Project scaffold: Vite + React + TypeScript + Tailwind, layered structure (types / services / components), and window manager skeleton. |
+| **Phase 2** | Core lyric engine: LRC parsing, LRCLIB + Genius retrieval, search with suggestions, curated track database, and fallback generation. |
+| **Phase 3** | Floating window UX: draggable/resizable glass window, opacity/blur/pin/minimize/presets, karaoke (click-to-seek, auto-scroll) and full-sheet modes, Genius annotations drawer. |
+| **Phase 4** | Playback sync: media-session integration, playback timer, and `±0.5s` offset calibration. |
+| **Phase 5** | **Customizable AI placeholder**: provider-agnostic adapter (OpenAI-compatible endpoint, env + in-app config), upgrading the canned fallback into real AI-synthesized synchronized lyrics. |
+| **Phase 6** | **Native companion bridge**: OS now-playing detection (Windows SMTC, macOS MediaRemote, Linux MPRIS) exposed over localhost; desktop shell (Electron/Tauri) packaging. |
+| **Phase 7** | Hardening & release: typecheck/lint clean, multi-platform validation, docs, and final demo. |
+
+---
+
+## 6. Reference Technology Stack
+
+* **UI & Language:** React 19, TypeScript, Vite, Tailwind CSS, `lucide-react`, `motion`.
+* **Lyrics & Annotations Providers:** Genius, LRCLIB (LRC synced lyrics), curated local database.
+* **Artificial Intelligence (Optional & Pluggable):** provider-agnostic adapter (OpenAI-compatible endpoint), configurable by env (`AI_PROVIDER_URL`, `AI_MODEL`, `AI_API_KEY`); Gemini via `@google/genai` as an optional adapter only.
+* **Native Desktop Bridge:** Electron or Tauri shell; Windows System Media Transport Controls (SMTC), macOS MediaRemote, Linux MPRIS (D-Bus).
+* **Backend/Serving:** Express (`server` support), `.env` configuration consumed by the AI Studio runtime.
+* **Quality & Tooling:** Vite build, `tsc --noEmit` typecheck, Git, `SPECS/implementation_plan` tracking, `PROJECT_OVERVIEW.MD` governance.

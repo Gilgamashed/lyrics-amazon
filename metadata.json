@@ -1,0 +1,6 @@
+{
+  "name": "Amazon Music Floating Lyrics",
+  "description": "Floating, resizable window companion for retrieving synchronized lyrics and Genius annotations for songs played on Amazon Music.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
