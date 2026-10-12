@@ -1,5 +1,6 @@
 import { Song, LyricsData, LyricLine, GeniusAnnotation } from '../types/lyrics';
 import { CURATED_TRACKS, CURATED_LYRICS_DATA } from './curatedTracks';
+import { getCachedLyrics, setCachedLyrics } from './lyricsCache';
 
 /**
  * Parses raw LRC format string into timestamped LyricLine array
@@ -132,9 +133,33 @@ export async function searchTracks(query: string): Promise<Song[]> {
 }
 
 /**
- * Retrieves lyrics from Genius & LRCLIB with fallback
+ * Retrieves lyrics from the in-memory cache, or fetches from providers and
+ * stores the result for recently played songs.
  */
-export async function fetchLyrics(song: Song): Promise<LyricsData> {
+export async function fetchLyrics(
+  song: Song,
+  options?: { useCache?: boolean }
+): Promise<LyricsData> {
+  const useCache = options?.useCache !== false;
+
+  if (useCache) {
+    const cached = getCachedLyrics(song);
+    if (cached) return cached;
+  }
+
+  const data = await fetchLyricsUncached(song);
+
+  if (useCache) {
+    setCachedLyrics(song, data);
+  }
+
+  return data;
+}
+
+/**
+ * Retrieves lyrics from Genius & LRCLIB with fallback (cache bypass)
+ */
+async function fetchLyricsUncached(song: Song): Promise<LyricsData> {
   // Check curated database first for rich verified data
   for (const [key, data] of Object.entries(CURATED_LYRICS_DATA)) {
     if (
