@@ -1,7 +1,14 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Song, LyricsData, WindowState, WindowPreset } from './types/lyrics';
+import {
+  Song,
+  LyricsData,
+  WindowState,
+  WindowPreset,
+  AIConfig,
+} from './types/lyrics';
 import { CURATED_TRACKS, CURATED_LYRICS_DATA } from './services/curatedTracks';
 import { fetchLyrics } from './services/lyricsService';
+import { resolveAIConfig } from './services/aiService';
 import { AmazonMusicBar } from './components/AmazonMusicBar';
 import { FloatingLyricsWindow } from './components/FloatingLyricsWindow';
 import { BackgroundDesktop } from './components/BackgroundDesktop';
@@ -12,6 +19,9 @@ export default function App() {
     CURATED_LYRICS_DATA['espresso-sabrina-carpenter']
   );
   const [isLoadingLyrics, setIsLoadingLyrics] = useState(false);
+
+  // Session-only AI fallback config (endpoint/model prefilled from env; key never persisted)
+  const [aiConfig, setAiConfig] = useState<AIConfig>(() => resolveAIConfig());
 
   // Playback & Timing state
   const [isPlaying, setIsPlaying] = useState(true);
@@ -80,20 +90,30 @@ export default function App() {
     return () => cancelAnimationFrame(animationFrameId);
   }, [isPlaying, currentSong.durationMs]);
 
-  // When song changes, fetch lyrics
-  const handleSelectSong = async (song: Song) => {
-    setCurrentSong(song);
-    setCurrentTimeMs(0);
+  // Load lyrics for a song using the given AI config (optionally bypassing caches)
+  const loadLyrics = useCallback(async (song: Song, config: AIConfig, useCache = true) => {
     setIsLoadingLyrics(true);
-
     try {
-      const data = await fetchLyrics(song);
+      const data = await fetchLyrics(song, { useCache, aiConfig: config });
       setLyricsData(data);
     } catch {
       // Keep previous or fallback
     } finally {
       setIsLoadingLyrics(false);
     }
+  }, []);
+
+  // When song changes, fetch lyrics
+  const handleSelectSong = async (song: Song) => {
+    setCurrentSong(song);
+    setCurrentTimeMs(0);
+    await loadLyrics(song, aiConfig);
+  };
+
+  // Save session-only AI config and retry the current track (bypasses caches)
+  const handleSaveAIConfig = async (config: AIConfig) => {
+    setAiConfig(config);
+    await loadLyrics(currentSong, config, false);
   };
 
   // Media Session API Sync
@@ -166,11 +186,14 @@ export default function App() {
         currentTimeMs={currentTimeMs}
         syncOffsetMs={syncOffsetMs}
         isMediaSessionActive={isMediaSessionActive}
+        aiConfig={aiConfig}
+        isBusy={isLoadingLyrics}
         onTogglePlay={() => setIsPlaying((prev) => !prev)}
         onSeek={(timeMs) => setCurrentTimeMs(timeMs)}
         onOffsetChange={(offsetMs) => setSyncOffsetMs(offsetMs)}
         onSelectSong={handleSelectSong}
         onToggleMediaSession={() => setIsMediaSessionActive((prev) => !prev)}
+        onSaveAIConfig={handleSaveAIConfig}
       />
 
       {/* ─── Mock Desktop Canvas Surface ─────────────────────────────── */}

@@ -1,6 +1,8 @@
-import { Song, LyricsData, LyricLine, GeniusAnnotation } from '../types/lyrics';
+import { Song, LyricsData, LyricLine, GeniusAnnotation, AIConfig } from '../types/lyrics';
 import { CURATED_TRACKS, CURATED_LYRICS_DATA } from './curatedTracks';
 import { getCachedLyrics, setCachedLyrics } from './lyricsCache';
+import { resolveAIConfig, isAIConfigured, synthesizeLyrics } from './aiService';
+import { getSavedAILyrics, saveAILyrics } from './aiLyricsStore';
 
 /**
  * Parses raw LRC format string into timestamped LyricLine array
@@ -138,7 +140,7 @@ export async function searchTracks(query: string): Promise<Song[]> {
  */
 export async function fetchLyrics(
   song: Song,
-  options?: { useCache?: boolean }
+  options?: { useCache?: boolean; aiConfig?: AIConfig }
 ): Promise<LyricsData> {
   const useCache = options?.useCache !== false;
 
@@ -147,7 +149,7 @@ export async function fetchLyrics(
     if (cached) return cached;
   }
 
-  const data = await fetchLyricsUncached(song);
+  const data = await fetchLyricsUncached(song, options?.aiConfig);
 
   if (useCache) {
     setCachedLyrics(song, data);
@@ -159,7 +161,7 @@ export async function fetchLyrics(
 /**
  * Retrieves lyrics from Genius & LRCLIB with fallback (cache bypass)
  */
-async function fetchLyricsUncached(song: Song): Promise<LyricsData> {
+async function fetchLyricsUncached(song: Song, aiConfig?: AIConfig): Promise<LyricsData> {
   // Check curated database first for rich verified data
   for (const [key, data] of Object.entries(CURATED_LYRICS_DATA)) {
     if (
@@ -237,6 +239,20 @@ async function fetchLyricsUncached(song: Song): Promise<LyricsData> {
     }
   } catch {
     // Network fallback handled below
+  }
+
+  // Reuse permanently stored AI-generated lyrics before re-invoking the provider
+  const savedAi = getSavedAILyrics(song);
+  if (savedAi) return savedAi;
+
+  // Provider-agnostic AI fallback (configurable via session settings or env)
+  const resolvedAi = resolveAIConfig(aiConfig);
+  if (isAIConfigured(resolvedAi)) {
+    const aiLyrics = await synthesizeLyrics(song, resolvedAi);
+    if (aiLyrics) {
+      saveAILyrics(song, aiLyrics);
+      return aiLyrics;
+    }
   }
 
   // Graceful fallback for any custom user song

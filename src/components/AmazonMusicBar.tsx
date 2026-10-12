@@ -11,9 +11,10 @@ import {
   ChevronDown,
   Volume2
 } from 'lucide-react';
-import { Song } from '../types/lyrics';
+import { Song, AIConfig } from '../types/lyrics';
 import { searchTracks } from '../services/lyricsService';
 import { CURATED_TRACKS } from '../services/curatedTracks';
+import { OptionsMenu } from './OptionsMenu';
 
 interface AmazonMusicBarProps {
   currentSong: Song;
@@ -21,11 +22,14 @@ interface AmazonMusicBarProps {
   currentTimeMs: number;
   syncOffsetMs: number;
   isMediaSessionActive: boolean;
+  aiConfig: AIConfig;
+  isBusy?: boolean;
   onTogglePlay: () => void;
   onSeek: (timeMs: number) => void;
   onOffsetChange: (offsetMs: number) => void;
   onSelectSong: (song: Song) => void;
   onToggleMediaSession: () => void;
+  onSaveAIConfig: (config: AIConfig) => void;
 }
 
 export const AmazonMusicBar: React.FC<AmazonMusicBarProps> = ({
@@ -34,11 +38,14 @@ export const AmazonMusicBar: React.FC<AmazonMusicBarProps> = ({
   currentTimeMs,
   syncOffsetMs,
   isMediaSessionActive,
+  aiConfig,
+  isBusy,
   onTogglePlay,
   onSeek,
   onOffsetChange,
   onSelectSong,
   onToggleMediaSession,
+  onSaveAIConfig,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Song[]>([]);
@@ -311,6 +318,9 @@ export const AmazonMusicBar: React.FC<AmazonMusicBarProps> = ({
               </div>
             )}
           </div>
+
+          {/* AI Fallback Options */}
+          <OptionsMenu aiConfig={aiConfig} isBusy={isBusy} onSave={onSaveAIConfig} />
         </div>
       </div>
 

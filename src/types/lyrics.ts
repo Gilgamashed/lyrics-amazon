@@ -76,3 +76,10 @@ export interface WindowPreset {
   width: number;
   height: number;
 }
+
+export interface AIConfig {
+  providerUrl: string;
+  model: string;
+  apiKey: string;
+  enabled: boolean;
+}

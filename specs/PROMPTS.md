@@ -102,3 +102,19 @@
 - **Prompt:** "Now, let's create a 04_SPEC_LYRICSYNC.md file that focuses on phase 4 of the PROJECT_OVERVIEW.MD, following the same pattern as the 01_SPEC_SCAFFOLD.md."
 - **Result:** Created `specs/04_SPEC_LYRICSYNC.md` (Objective, Context with gap-closure, Tasks & Responsibilities, DoD) covering the playback timer, media-session integration (metadata + play/pause/seekto), and `±0.5s`/`±0.1s` offset calibration.
 - **Human Review:** Confirmed filename `04_SPEC_LYRICSYNC.md`; approved gap-closure framing with all DoD items checked.
+
+## [2026-10-12] Draft Phase 5 AI fallback spec
+
+- **Tool:** OpenAI Codex
+- **Context:** Continue SpecDD execution with Phase 5 (customizable AI fallback) of the roadmap.
+- **Prompt:** "Now, let's create a 05_SPEC_AIFALLBACK.md file that focuses on phase 5 of the PROJECT_OVERVIEW.MD, following the same pattern as the 01_SPEC_SCAFFOLD.md" — plus two personal additions: (1) users input their own API keys in an options menu; (2) AI-generated lyrics saved locally permanently.
+- **Result:** Created `specs/05_SPEC_AIFALLBACK.md` (Objective, Context, Tasks & Responsibilities, DoD, Deferred/TODO), framed as forward-looking (unchecked DoD) since Phase 5 is not yet implemented.
+- **Human Review:** Chose direct browser fetch (no proxy); session-only API key with a deferred TODO to research more secure handling; AI-only localStorage persistence (no TTL).
+
+## [2026-10-12] Implement Phase 5 AI fallback
+
+- **Tool:** OpenAI Codex
+- **Context:** Execute the `specs/05_SPEC_AIFALLBACK.md` DoD; the spec was amended first to reflect the key-security decision.
+- **Prompt:** "let's execute" (following the agreed plan of action: amend spec, foundations, AI services, integration, UI, docs).
+- **Result:** Added `AIConfig` type; `src/services/aiService.ts` (`resolveAIConfig` + `synthesizeLyrics` over an OpenAI-compatible `chat/completions` endpoint); `src/services/aiLyricsStore.ts` (permanent, AI-only `localStorage`); integrated AI into the `fetchLyrics` cascade (curated → LRCLIB → AI-store → AI-call → canned); new `src/components/OptionsMenu.tsx` (masked, session-only key) wired into `AmazonMusicBar` and `App`; updated `.env.example` (endpoint/model only) and README. All DoD items checked.
+- **Human Review:** Env carries only non-secret endpoint/model; the API key is entered at runtime and never bundled — server-side proxy remains the documented secure alternative (deferred). `npm run lint` and `npm run build` pass.

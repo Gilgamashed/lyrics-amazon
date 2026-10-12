@@ -7,7 +7,7 @@ A standalone, desktop-style companion that retrieves synchronized lyrics and Gen
 - **Dual display modes:** Synchronized Karaoke and Full Lyrics Sheet.
 - **Window experience:** opacity/blur sliders, pin-to-top, minimize-to-pill, resize handles, and window presets.
 
-> Status: Phase 1 (Project Scaffolding) — see `specs/PROJECT_OVERVIEW.MD` for the roadmap and `specs/00_AI-SAFE.md` for the SpecDD scope rules.
+> Status: Phase 5 (Customizable AI Fallback) — see `specs/PROJECT_OVERVIEW.MD` for the roadmap and `specs/00_AI-SAFE.md` for the SpecDD scope rules.
 
 ## Prerequisites
 
@@ -31,6 +31,10 @@ A standalone, desktop-style companion that retrieves synchronized lyrics and Gen
 
    - `GEMINI_API_KEY` — Gemini API key (AI Studio injects it at runtime from secrets).
    - `APP_URL` — the URL where the applet is hosted (used for self-referential links and API endpoints).
+   - `VITE_AI_PROVIDER_URL` — OpenAI-compatible base URL for the provider-agnostic AI fallback (e.g. `https://api.openai.com/v1`).
+   - `VITE_AI_MODEL` — model name sent to that endpoint (e.g. `gpt-4o-mini`).
+
+   The AI **API key is never read from env** (that would expose it in the client bundle). Enter it in the in-app **AI Options** menu — see [AI Lyric Fallback](#ai-lyric-fallback).
 
    Secrets stay local — `.env*` files are git-ignored (only `.env.example` is tracked).
 
@@ -76,6 +80,18 @@ Recently played song lyrics are cached **in memory** (no persistence) to avoid r
 - **TTL:** entries expire after 7 days.
 - **Bypass:** `fetchLyrics(song, { useCache: false })` skips both cache lookup and write.
 - Created in `src/services/lyricsCache.ts`; exports `getCachedLyrics`, `setCachedLyrics`, `clearLyricsCache`, `getCacheStats`.
+
+## AI Lyric Fallback
+
+When a track has no coverage in the curated database, LRCLIB, or Genius, the app can synthesize synchronized lyrics and annotations through a **provider-agnostic** adapter over any **OpenAI-compatible** `chat/completions` endpoint.
+
+- **Configuration:** endpoint and model are resolved from the **AI Options** menu (top bar) first, then from `VITE_AI_PROVIDER_URL` / `VITE_AI_MODEL`. A Google Gemini model is an option, not a requirement.
+- **API key:** entered in the **AI Options** menu and held **in memory for the session only** — it is never written to disk, env, or the client bundle. It is sent only to the provider you configure.
+- **Requests:** issued directly from the browser via `fetch` to `${providerUrl}/chat/completions`. Some providers may reject cross-origin requests (CORS) — if so, run the app behind a proxy for that provider.
+- **Persistence:** AI-generated results (`provider: "AI Sync"`) are saved **permanently in `localStorage`** (keyed by `title|artist`, no expiry) and reused on repeat plays. Use **Clear** in the AI Options menu to remove them.
+- **Fallback:** if the provider is unconfigured, unreachable, times out, or returns malformed data, the app silently falls back to the canned lyrics without blocking playback.
+
+> Security note: keeping a built-in key out of the client would require a server-side proxy (the key never reaches the browser). This is intentionally deferred — see `specs/05_SPEC_AIFALLBACK.md` §5.
 
 ## Runtime Smoke-Verification
 
