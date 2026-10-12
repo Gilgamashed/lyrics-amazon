@@ -118,3 +118,27 @@
 - **Prompt:** "let's execute" (following the agreed plan of action: amend spec, foundations, AI services, integration, UI, docs).
 - **Result:** Added `AIConfig` type; `src/services/aiService.ts` (`resolveAIConfig` + `synthesizeLyrics` over an OpenAI-compatible `chat/completions` endpoint); `src/services/aiLyricsStore.ts` (permanent, AI-only `localStorage`); integrated AI into the `fetchLyrics` cascade (curated → LRCLIB → AI-store → AI-call → canned); new `src/components/OptionsMenu.tsx` (masked, session-only key) wired into `AmazonMusicBar` and `App`; updated `.env.example` (endpoint/model only) and README. All DoD items checked.
 - **Human Review:** Env carries only non-secret endpoint/model; the API key is entered at runtime and never bundled — server-side proxy remains the documented secure alternative (deferred). `npm run lint` and `npm run build` pass.
+
+## [2026-10-12] Draft Phase 6 native companion bridge spec
+
+- **Tool:** OpenAI Codex
+- **Context:** Continue SpecDD execution with Phase 6 (native companion bridge / desktop-app track detection) of the roadmap.
+- **Prompt:** "Now, let's create a 06_SPEC_DETECTION.md file that focuses on phase 6 of the PROJECT_OVERVIEW.MD, following the same pattern as the 01_SPEC_SCAFFOLD.md."
+- **Result:** Created `specs/06_SPEC_DETECTION.md` (Objective, Context, Tasks & Responsibilities, DoD, Deferred/TODO), framed as forward-looking (unchecked DoD) since Phase 6 is not implemented.
+- **Human Review:** Chose Tauri v2 shell with a Rust-native bridge in the Tauri core; localhost WebSocket + HTTP transport; Windows-first (SMTC) with macOS/Linux adapters; full cross-platform validation deferred to Phase 7.
+
+## [2026-10-12] Phase 6 toolchain decision and Rust setup
+
+- **Tool:** opencode (big-pickle)
+- **Context:** `specs/06_SPEC_DETECTION.md` requires a Rust/Tauri build; no Rust toolchain was installed.
+- **Prompt:** "let's proceed" (plan Part 0: environment setup).
+- **Result:** `winget` hung, so `rustup-init.exe` was downloaded directly from `win.rustup.rs` and installed stable 1.99.0 (MSVC). A throwaway crate plus the full Tauri dependency tree compiled and linked against the existing **VS2017 MSVC 14.16 + Windows SDK 10.0.26100**, so no VS2022 Build Tools install was needed.
+- **Human Review:** Confirmed VS2017-first decision held; fallback (VS2022 Build Tools) remains documented but unused.
+
+## [2026-10-12] Implement Phase 6 native companion bridge
+
+- **Tool:** opencode (big-pickle)
+- **Context:** Execute the `specs/06_SPEC_DETECTION.md` DoD (all tasks in §3).
+- **Prompt:** "let's proceed" (approved plan: Tauri scaffold → Rust bridge → frontend integration → docs/verification).
+- **Result:** Added `@tauri-apps/cli`/`@tauri-apps/api` ^2 and a Tauri v2 scaffold (`src-tauri/`, identifier `com.lyrics.amazonmusic`, devUrl `http://localhost:3000`). Rust bridge in `src-tauri/src/bridge/`: `NowPlaying` schema (camelCase JSON), `NowPlayingSource` common trait, `windows.rs` (SMTC via `windows-rs` 0.62: MTA COM init, 1s poll, thread-parking `block_on` for `IntoFuture` async ops), `macos.rs` (`nowplaying-cli get-raw` JSON), `linux.rs` (`playerctl` MPRIS), and an axum server on `127.0.0.1:48765` (`GET /health`, `GET /now-playing`, `GET /ws` push via broadcast, 1s diff polling). Frontend: `src/services/bridgeService.ts` (WS client with exponential backoff + HTTP snapshot), `App.tsx` desktop-track mapping into `Song`/playback + auto lyrics load, `AmazonMusicBar` Desktop (native) vs Browser (Media Session) indicator, `.env.example` `VITE_BRIDGE_URL`, new `scripts/smoke-bridge.ts` (`npm run bridge:smoke`), Tauri npm scripts, README docs.
+- **Human Review:** All 13 DoD items checked. `npm run lint`, `npm run build`, `cargo clippy --all-targets`, `cargo build` pass; live smoke run PASS (bridge detected a real Windows SMTC session over HTTP + WS). No Phase 7 features introduced.

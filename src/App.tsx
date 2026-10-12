@@ -5,13 +5,46 @@ import {
   WindowState,
   WindowPreset,
   AIConfig,
+  NowPlaying,
+  DetectionSource,
 } from './types/lyrics';
 import { CURATED_TRACKS, CURATED_LYRICS_DATA } from './services/curatedTracks';
 import { fetchLyrics } from './services/lyricsService';
 import { resolveAIConfig } from './services/aiService';
+import { createBridgeClient, BridgeConnectionState } from './services/bridgeService';
 import { AmazonMusicBar } from './components/AmazonMusicBar';
 import { FloatingLyricsWindow } from './components/FloatingLyricsWindow';
 import { BackgroundDesktop } from './components/BackgroundDesktop';
+
+function resolveDesktopSong(nowPlaying: NowPlaying): Song {
+  const title = nowPlaying.title?.trim() || 'Unknown Track';
+  const artist = nowPlaying.artist?.trim() || 'Unknown Artist';
+
+  const curated = CURATED_TRACKS.find(
+    (track) =>
+      track.title.toLowerCase() === title.toLowerCase() &&
+      track.artist.toLowerCase() === artist.toLowerCase()
+  );
+  if (curated) return curated;
+
+  const slug = (value: string) =>
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '');
+
+  return {
+    id: `desktop-${slug(title)}-${slug(artist)}`,
+    title,
+    artist,
+    album: nowPlaying.album?.trim() || 'Amazon Music',
+    albumArt: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300&h=300&fit=crop',
+    durationMs:
+      nowPlaying.durationMs && nowPlaying.durationMs > 0 ? nowPlaying.durationMs : 180000,
+    amazonMusicUrl: `https://music.amazon.com/search/${encodeURIComponent(`${title} ${artist}`)}`,
+    genre: 'Now Playing (Desktop)',
+  };
+}
 
 export default function App() {
   const [currentSong, setCurrentSong] = useState<Song>(CURATED_TRACKS[0]);
@@ -28,6 +61,11 @@ export default function App() {
   const [currentTimeMs, setCurrentTimeMs] = useState(0);
   const [syncOffsetMs, setSyncOffsetMs] = useState(0);
   const [isMediaSessionActive, setIsMediaSessionActive] = useState(true);
+
+  // Native companion bridge (desktop app detection)
+  const [bridgeStatus, setBridgeStatus] = useState<BridgeConnectionState>('connecting');
+  const lastDesktopTrackKeyRef = useRef<string | null>(null);
+  const desktopHandlerRef = useRef<(nowPlaying: NowPlaying) => void>(() => {});
 
   // Background environment theme
   const [backgroundTheme, setBackgroundTheme] = useState<'amazon-music' | 'studio' | 'minimal'>(
@@ -116,6 +154,39 @@ export default function App() {
     await loadLyrics(currentSong, config, false);
   };
 
+  // Keep the desktop bridge handler bound to the latest AI config without reconnecting
+  useEffect(() => {
+    desktopHandlerRef.current = (nowPlaying: NowPlaying) => {
+      if (typeof nowPlaying.positionMs === 'number') {
+        setCurrentTimeMs(nowPlaying.positionMs);
+      }
+      setIsPlaying(nowPlaying.isPlaying);
+
+      const title = nowPlaying.title?.trim();
+      if (!nowPlaying.isPlaying || !title) return;
+
+      const key = `${title.toLowerCase()}|${(nowPlaying.artist ?? '').trim().toLowerCase()}`;
+      if (key === lastDesktopTrackKeyRef.current) return;
+      lastDesktopTrackKeyRef.current = key;
+
+      const song = resolveDesktopSong(nowPlaying);
+      setCurrentSong(song);
+      void loadLyrics(song, aiConfig);
+    };
+  });
+
+  // Connect to the localhost native bridge; degrade gracefully to browser Media Session
+  useEffect(() => {
+    const client = createBridgeClient({
+      onConnectionChange: setBridgeStatus,
+      onNowPlaying: (nowPlaying) => desktopHandlerRef.current(nowPlaying),
+    });
+    client.start();
+    return () => client.stop();
+  }, []);
+
+  const detectionSource: DetectionSource = bridgeStatus === 'connected' ? 'desktop' : 'browser';
+
   // Media Session API Sync
   useEffect(() => {
     if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
@@ -186,6 +257,7 @@ export default function App() {
         currentTimeMs={currentTimeMs}
         syncOffsetMs={syncOffsetMs}
         isMediaSessionActive={isMediaSessionActive}
+        detectionSource={detectionSource}
         aiConfig={aiConfig}
         isBusy={isLoadingLyrics}
         onTogglePlay={() => setIsPlaying((prev) => !prev)}

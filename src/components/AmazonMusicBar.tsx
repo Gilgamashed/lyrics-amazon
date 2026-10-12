@@ -9,9 +9,11 @@ import {
   Sparkles,
   ExternalLink,
   ChevronDown,
-  Volume2
+  Volume2,
+  Globe,
+  Monitor
 } from 'lucide-react';
-import { Song, AIConfig } from '../types/lyrics';
+import { Song, AIConfig, DetectionSource } from '../types/lyrics';
 import { searchTracks } from '../services/lyricsService';
 import { CURATED_TRACKS } from '../services/curatedTracks';
 import { OptionsMenu } from './OptionsMenu';
@@ -22,6 +24,7 @@ interface AmazonMusicBarProps {
   currentTimeMs: number;
   syncOffsetMs: number;
   isMediaSessionActive: boolean;
+  detectionSource: DetectionSource;
   aiConfig: AIConfig;
   isBusy?: boolean;
   onTogglePlay: () => void;
@@ -38,6 +41,7 @@ export const AmazonMusicBar: React.FC<AmazonMusicBarProps> = ({
   currentTimeMs,
   syncOffsetMs,
   isMediaSessionActive,
+  detectionSource,
   aiConfig,
   isBusy,
   onTogglePlay,
@@ -147,6 +151,29 @@ export const AmazonMusicBar: React.FC<AmazonMusicBarProps> = ({
               {isMediaSessionActive ? 'Auto-Detect On' : 'Auto-Detect'}
             </span>
           </button>
+
+          {/* Detection source indicator: native desktop bridge vs browser Media Session */}
+          <span
+            title={
+              detectionSource === 'desktop'
+                ? 'Detecting playback from the native desktop bridge (Amazon Music app)'
+                : 'Detecting playback from browser Media Session — native bridge offline'
+            }
+            className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg border transition-all shrink-0 ${
+              detectionSource === 'desktop'
+                ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
+                : 'bg-slate-800 text-slate-400 border-slate-700/60'
+            }`}
+          >
+            {detectionSource === 'desktop' ? (
+              <Monitor className="w-3.5 h-3.5" />
+            ) : (
+              <Globe className="w-3.5 h-3.5" />
+            )}
+            <span className="hidden md:inline">
+              {detectionSource === 'desktop' ? 'Desktop (native)' : 'Browser (Media Session)'}
+            </span>
+          </span>
         </div>
 
         {/* Center: Search & Quick Track Switcher */}

@@ -83,3 +83,15 @@ export interface AIConfig {
   apiKey: string;
   enabled: boolean;
 }
+
+export type DetectionSource = 'browser' | 'desktop';
+
+export interface NowPlaying {
+  source: string;
+  title: string | null;
+  artist: string | null;
+  album: string | null;
+  durationMs: number | null;
+  positionMs: number | null;
+  isPlaying: boolean;
+}
