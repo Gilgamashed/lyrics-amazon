@@ -84,7 +84,7 @@ src-tauri/
   src/bridge/  Rust-native companion bridge (axum HTTP + WebSocket, per-OS now-playing adapters)
   src/         Tauri shell (lib.rs, main.rs)
 specs/
-  PROJECT_OVERVIEW.MD   Project overview & 7-phase roadmap
+  PROJECT_OVERVIEW.MD   Project overview & 8-phase roadmap
   00_AI-SAFE.md         SpecDD scope-restriction guideline
   0N_SPEC_*.md          Per-phase specifications
   PROMPTS.md            AI prompt & decision history

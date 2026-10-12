@@ -96,7 +96,8 @@ The project is considered complete when it satisfies the following functional an
 | **Phase 4** | Playback sync: media-session integration, playback timer, and `±0.5s` offset calibration. |
 | **Phase 5** | **Customizable AI placeholder**: provider-agnostic adapter (OpenAI-compatible endpoint, env + in-app config), upgrading the canned fallback into real AI-synthesized synchronized lyrics. |
 | **Phase 6** | **Native companion bridge**: OS now-playing detection (Windows SMTC, macOS MediaRemote, Linux MPRIS) exposed over localhost; desktop shell (Electron/Tauri) packaging. |
-| **Phase 7** | Hardening & release: typecheck/lint clean, multi-platform validation, docs, and final demo. |
+| **Phase 7** | **Automated testing & verification**: unit/component tests (frontend + Rust core), bridge HTTP/WS integration tests, and a real frontend↔backend E2E suite, targeting ≥ 85% combined line coverage with documented findings. |
+| **Phase 8** | Hardening & release: typecheck/lint clean, multi-platform validation, docs, and final demo. |
 
 ---
 

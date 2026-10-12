@@ -1,7 +1,7 @@
 # 01_SPEC_SCAFFOLD.md — Phase 1: Project Scaffolding
 
 **Project:** Lyrics for Amazon Music (Amazon Music Floating Lyrics)
-**Phase:** 1 of 7 (see Delivery Roadmap in `specs/PROJECT_OVERVIEW.MD`)
+**Phase:** 1 of 8 (see Delivery Roadmap in `specs/PROJECT_OVERVIEW.MD`)
 **Governed by:** `specs/00_AI-SAFE.md` (SpecDD)
 
 ---
@@ -12,7 +12,7 @@ Establish the runnable, layered, and versioned foundation for the Lyrics for Ama
 
 ## 2. Context
 
-This is Phase 1 of the 7-phase roadmap described in `specs/PROJECT_OVERVIEW.MD` (§5). Development follows the SpecDD methodology and the scope-restriction rules of `specs/00_AI-SAFE.md`: only the surface area declared by this spec is in scope.
+This is Phase 1 of the 8-phase roadmap described in `specs/PROJECT_OVERVIEW.MD` (§5). Development follows the SpecDD methodology and the scope-restriction rules of `specs/00_AI-SAFE.md`: only the surface area declared by this spec is in scope.
 
 **Current status (gap-closure note):** The repository already contains most of the scaffold:
 

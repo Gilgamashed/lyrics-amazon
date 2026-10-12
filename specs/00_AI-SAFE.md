@@ -1,7 +1,7 @@
 # AI-SAFE: Incremental Development Guideline (Scope Restriction)
 
 ## 1. Project Golden Rule (Restricted Context)
-This repository hosts the development of **Lyrics for Amazon Music**, a standalone companion that retrieves synchronized lyrics and Genius annotations for songs currently playing on Amazon Music and displays them in a floating, translucent, draggable, and resizable glass window[cite: 1]. The complete planning of this software encompasses a detailed 7-phase roadmap[cite: 1].
+This repository hosts the development of **Lyrics for Amazon Music**, a standalone companion that retrieves synchronized lyrics and Genius annotations for songs currently playing on Amazon Music and displays them in a floating, translucent, draggable, and resizable glass window[cite: 1]. The complete planning of this software encompasses a detailed 8-phase roadmap[cite: 1].
 
 **ABSOLUTE WARNING FOR AI AGENTS AND DEVELOPERS:** 
 Although the total scope of the project (which includes the native companion bridge for desktop-app track detection and the pluggable AI fallback adapter) is already mapped out in the `specs/PROJECT_OVERVIEW.MD`, **development will strictly follow the SpecDD (Specification-Driven Development) methodology in an iterative and incremental manner**[cite: 1]. Each phase of the roadmap is captured in its own dedicated specification file inside `specs/` (e.g., `01_SPEC_SCAFFOLD.md`), and no work happens outside the current spec[cite: 1].
