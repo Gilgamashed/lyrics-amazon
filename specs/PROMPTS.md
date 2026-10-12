@@ -70,3 +70,19 @@
 - **Prompt:** "Let's add instructions on how to fill the PROMPT.md - follow the example found in the file itself."
 - **Result:** Added "How to fill this file" section (purpose, fields table, chronological rules), fixed typos, and seeded the history with decisions recorded so far.
 - **Human Review:** Approved chronological (append) ordering and typo fixes.
+
+## [2026-10-12] Draft Phase 2 lyric engine spec
+
+- **Tool:** OpenAI Codex
+- **Context:** Continue SpecDD execution with Phase 2 (core lyric engine) of the roadmap.
+- **Prompt:** "Let's create a 02_SPEC_SCAFFOLD.md file that focuses on phase 2 of the PROJECT_OVERVIEW.MD, following the same pattern as the 01_SPEC_SCAFFOLD.md."
+- **Result:** Created `specs/02_SPEC_LYRIC_ENGINE.md` (Objective, Context with gap-closure, Tasks & Responsibilities, DoD); renamed to `02_SPEC_LYRIC_ENGINE.md` to match the roadmap area.
+- **Human Review:** Confirmed filename `02_SPEC_LYRIC_ENGINE.md`; DoD audit marked all items done via code inspection + lint.
+
+## [2026-10-12] Add in-memory cache and smoke verification for the lyric engine
+
+- **Tool:** OpenAI Codex
+- **Context:** Phase 2 (`specs/02_SPEC_LYRIC_ENGINE.md`) DoD review; user proposed caching recently played song data and running runtime smoke-verification with/without cache.
+- **Prompt:** "I'm considering adding a cache for recently played song data and run runtime smoke-verification with and without cache, documenting the finding in the README.md. How should we approach this?"
+- **Result:** Added `src/services/lyricsCache.ts` (memory-only, bounded 20 entries, 7-day TTL, `title|artist` key, `useCache` bypass in `fetchLyrics`), `scripts/smoke-lyrics.ts` (`npm run smoke`), README "Lyrics Cache" + "Runtime Smoke-Verification" sections with measured timings, and updated the Phase 2 spec DoD.
+- **Human Review:** Approved scope (lyrics-only), persistence (memory-only), and live smoke run. Live result: cache hit 0 ms vs 400 ms cold fetch.

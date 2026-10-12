@@ -65,3 +65,34 @@ specs/
   0N_SPEC_*.md          Per-phase specifications
   PROMPTS.md            AI prompt & decision history
 ```
+
+## Lyrics Cache
+
+Recently played song lyrics are cached **in memory** (no persistence) to avoid re-fetching from LRCLIB on repeat plays.
+
+- **Scope:** `fetchLyrics` results only (recently played song data); search results are not cached.
+- **Key:** normalized `title|artist`.
+- **Bounded:** max 20 entries (LRU-style eviction of oldest on overflow).
+- **TTL:** entries expire after 7 days.
+- **Bypass:** `fetchLyrics(song, { useCache: false })` skips both cache lookup and write.
+- Created in `src/services/lyricsCache.ts`; exports `getCachedLyrics`, `setCachedLyrics`, `clearLyricsCache`, `getCacheStats`.
+
+## Runtime Smoke-Verification
+
+Exercise the lyric engine against live LRCLIB with and without cache:
+
+```bash
+npm run smoke
+```
+
+Uses a track that is **not** in the curated database (e.g., *Yesterday — The Beatles*) to force a real network request, then measures cold fetch vs warm cache-hit latency.
+
+Result of a live run (2026-10-12):
+
+| Pass | `useCache` | Latency | Provider | Lines |
+| :--- | :--- | ---: | :--- | ---: |
+| Cold (forced network) | `false` | 400 ms | LRCLIB | 20 |
+| Warm (cache miss) | `true` | 223 ms | LRCLIB | 20 |
+| Warm (cache hit) | `true` | 0 ms | LRCLIB | 20 |
+
+The cache-hit pass avoids the network round-trip entirely (0 ms), confirming `fetchLyrics` returns cached `LyricsData` for repeat plays.
