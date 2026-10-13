@@ -475,11 +475,23 @@ mod tests {
     #[allow(clippy::await_holding_lock)] // serializes the two tests that bind the fixed PORT
     async fn bind_bridge_resolves_to_localhost_fixed_port() {
         let _guard = PORT_LOCK.lock().unwrap();
-        let listener = bind_bridge().await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        assert!(addr.ip().is_loopback());
-        assert_eq!(addr.port(), PORT);
-        drop(listener);
+        // The fixed PORT can transiently be held by a neighbouring CI process or an
+        // OS socket in transition, so tolerate AddrInUse briefly before asserting.
+        for _ in 0..20 {
+            match bind_bridge().await {
+                Ok(bound) => {
+                    let addr = bound.local_addr().unwrap();
+                    assert!(addr.ip().is_loopback());
+                    assert_eq!(addr.port(), PORT);
+                    return;
+                }
+                Err(error) if error.kind() != std::io::ErrorKind::AddrInUse => {
+                    panic!("unexpected bind error: {error}");
+                }
+                Err(_) => tokio::time::sleep(Duration::from_millis(150)).await,
+            }
+        }
+        panic!("fixed bridge port {PORT} stayed busy across retries");
     }
 
     #[tokio::test]
