@@ -7,7 +7,7 @@ A standalone, desktop-style companion that retrieves synchronized lyrics and Gen
 - **Dual display modes:** Synchronized Karaoke and Full Lyrics Sheet.
 - **Window experience:** opacity/blur sliders, pin-to-top, minimize-to-pill, resize handles, and window presets.
 
-> Status: Phase 7 (Automated Testing & Verification) — see `specs/PROJECT_OVERVIEW.MD` for the roadmap and `specs/00_AI-SAFE.md` for the SpecDD scope rules.
+> Status: Phase 8 (Hardening & Release) — **MVP complete**. See `specs/PROJECT_OVERVIEW.MD` for the roadmap and `specs/00_AI-SAFE.md` for the SpecDD scope rules.
 
 ## Prerequisites
 
@@ -122,11 +122,40 @@ When a track has no coverage in the curated database, LRCLIB, or Genius, the app
 The Amazon Music **desktop app** is detected by a Rust-native bridge hosted in the Tauri core (single binary, no Node runtime shipped). It reads OS-level now-playing metadata and publishes it on localhost:
 
 - **Windows (this phase):** SMTC via `windows-rs` `GlobalSystemMediaTransportControlsSessionManager`, polled once per second (MTA COM, session title/artist/album, timeline position/duration, playback status).
-- **macOS / Linux (best-effort, code-complete):** `nowplaying-cli` (MediaRemote) and `playerctl` (MPRIS) adapters behind a common `NowPlayingSource` interface; runtime validation is deferred to Phase 8.
+- **macOS / Linux (best-effort, code-complete):** `nowplaying-cli` (MediaRemote) and `playerctl` (MPRIS) adapters behind a common `NowPlayingSource` interface; they compile and pass their fixture suites on macOS/Ubuntu in CI, but live-session validation on real hardware is a post-MVP item.
 - **Transport:** `GET /now-playing` (current snapshot), `GET /health`, and `GET /ws` — a WebSocket that pushes every change. All on `127.0.0.1:48765`, localhost only.
 - **Payload:** `NowPlaying { source, title, artist, album, durationMs, positionMs, isPlaying }` (`camelCase` JSON).
 - **UI behavior:** when the bridge is connected, the detected track is mapped into the existing `Song`/playback state and lyrics load through the normal `fetchLyrics` cascade; position/play state are kept in sync. When the bridge is offline, the client keeps reconnecting with backoff and the browser Media Session path continues to work unchanged.
 - **Indicator:** the top bar shows **Desktop (native)** when the bridge is connected, or **Browser (Media Session)** otherwise.
+
+## Packaging & Release
+
+Produce the installable desktop app (Windows, built in Phase 8):
+
+```bash
+npm run tauri:build
+```
+
+- Requires the prerequisites above (Rust/MSVC toolchain, WebView2 runtime).
+- Because `cargo` is a native binary, run it with the Rust toolchain on `PATH` (e.g. `$env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"` on PowerShell) — the Tauri CLI shells out to `cargo metadata`.
+- Build artifacts land under `src-tauri/target/release/bundle/`:
+
+  | Artifact | Path | Size (0.1.0) |
+  | :--- | :--- | ---: |
+  | NSIS installer | `bundle/nsis/Amazon Music Floating Lyrics_0.1.0_x64-setup.exe` | 2.17 MiB |
+  | MSI installer | `bundle/msi/Amazon Music Floating Lyrics_0.1.0_x64_en-US.msi` | 3.23 MiB |
+
+- The installed app runs the UI and the embedded companion bridge together; on launch the bridge serves `GET /health` and `GET /now-playing` on `127.0.0.1:48765` (verified against the Phase 8 release build — `npm run bridge:smoke` reports **PASS**).
+- Installers are **unsigned** (no code-signing certificates in this project); Windows SmartScreen may warn when installing.
+- Cross-platform installers (macOS `.dmg`/`.app`, Linux `.rpm`/`.deb`/AppImage) are not produced in this phase — the macOS/Ubuntu CI matrix validates that frontend + Rust core build and test cleanly on those OSes.
+
+## CI (GitHub Actions)
+
+A workflow (`.github/workflows/ci.yml`) runs on every push to `dev` and on pull requests:
+
+- **`quality-gates`** (Windows runner): `tsc --noEmit` lint, production build, 131 Vitest tests, the combined ≥ 85% coverage gate, `cargo fmt --check`, `cargo clippy --all-targets`, 36 Rust tests, and the 8-test Playwright E2E suite (system Chrome is preinstalled on the runner — no bundled Chromium download).
+- **`platform-matrix`** (macOS + Ubuntu runners): `npm ci`, lint, build, and `cargo test` — the multi-platform validation cover (Ubuntu installs the Tauri system dependencies first).
+- The workflow is intentionally **secrets-free** (public runners, no signing) and caches the npm and Cargo build caches between runs.
 
 ## Testing
 

@@ -76,13 +76,15 @@ The system is organized into 6 logical layers, designed to run standalone (brows
 
 The project is considered complete when it satisfies the following functional and architectural criteria:
 
-- ▶ **Hybrid track detection** — web-player via `navigator.mediaSession`, desktop-app via the native companion bridge, plus search/quick-input.
-- ▶ **Multi-provider lyrics** — LRCLIB synced lyrics, Genius annotations/trivia, and a **provider-agnostic AI fallback** for missing tracks.
-- ▶ **Dual display modes** — synchronized karaoke highlighting (auto-scroll, click-to-seek) and full lyrics sheet (verse headers, font sizing, copy).
-- ▶ **Floating window ergonomics** — drag anywhere, multi-direction resize, opacity (15–100%) and blur sliders, pin/always-on-top, minimize-to-floating-pill, maximize/presets.
-- ▶ **Sync calibration** — `±0.5s` / `±0.1s` offset controls keeping lyrics locked to the exact Amazon Music stream.
-- ▶ **AI placeholder configurability** — endpoint/model/key settable via env and in-app; zero coupling to a specific vendor.
-- ▶ **Standalone execution** — single-command run locally (`npm run dev`) and buildable for packaging as a desktop companion.
+> **Status (Phase 8 close-out):** all criteria below are met and the MVP is delivered as of Phase 8.
+
+- ✅ **Hybrid track detection** — web-player via `navigator.mediaSession`, desktop-app via the native companion bridge, plus search/quick-input.
+- ✅ **Multi-provider lyrics** — LRCLIB synced lyrics, Genius annotations/trivia, and a **provider-agnostic AI fallback** for missing tracks.
+- ✅ **Dual display modes** — synchronized karaoke highlighting (auto-scroll, click-to-seek) and full lyrics sheet (verse headers, font sizing, copy).
+- ✅ **Floating window ergonomics** — drag anywhere, multi-direction resize, opacity (15–100%) and blur sliders, pin/always-on-top, minimize-to-floating-pill, maximize/presets.
+- ✅ **Sync calibration** — `±0.5s` / `±0.1s` offset controls keeping lyrics locked to the exact Amazon Music stream.
+- ✅ **AI placeholder configurability** — endpoint/model/key settable via env and in-app; zero coupling to a specific vendor.
+- ✅ **Standalone execution** — single-command run locally (`npm run dev`) and buildable for packaging as a desktop companion (`npm run tauri:build` → NSIS + MSI installers).
 
 ---
 

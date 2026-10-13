@@ -84,14 +84,14 @@ This is Phase 8 — the last phase of the 8-phase roadmap described in `specs/PR
 
 ## 4. Definition of Done
 
-- [ ] All quality gates pass locally: `npm run lint`, `npm run build`, `npm run test`, `cargo fmt --check`, `cargo clippy --all-targets`, `cargo test`, `npm run coverage:report` (≥ 85% combined), `npm run test:e2e`, `npm run smoke`, and `npm run bridge:smoke`.
-- [ ] `npm run tauri:build` produces Windows installers (NSIS `.exe` + MSI).
-- [ ] The packaged app launches with the UI rendering and the bridge healthy on `127.0.0.1:48765`.
-- [ ] `.github/workflows/ci.yml` exists with a Windows full-gate job and macOS/Ubuntu lint/build/`cargo test` matrix jobs, all green.
-- [ ] README documents packaging/release, CI, and the final demo; the status line reflects the MVP completion.
-- [ ] `specs/PROMPTS.md` records Phase 8; this spec's DoD is checked; `specs/PROJECT_OVERVIEW.MD` §4 reflects MVP completion.
-- [ ] The final demo is delivered and its result recorded.
-- [ ] No post-MVP backlog features (signing/notarization/auto-update, `tauri-driver` E2E, advanced testing, AI key-security overhaul, bridge discovery/transport controls) were introduced during this phase.
+- [x] All quality gates pass locally: `npm run lint`, `npm run build`, `npm run test`, `cargo fmt --check`, `cargo clippy --all-targets`, `cargo test`, `npm run coverage:report` (≥ 85% combined), `npm run test:e2e`, `npm run smoke`, and `npm run bridge:smoke`.
+- [x] `npm run tauri:build` produces Windows installers (NSIS `.exe` + MSI).
+- [x] The packaged app launches with the UI rendering and the bridge healthy on `127.0.0.1:48765`.
+- [x] `.github/workflows/ci.yml` exists with a Windows full-gate job and macOS/Ubuntu lint/build/`cargo test` matrix jobs, all green.
+- [x] README documents packaging/release, CI, and the final demo; the status line reflects the MVP completion.
+- [x] `specs/PROMPTS.md` records Phase 8; this spec's DoD is checked; `specs/PROJECT_OVERVIEW.MD` §4 reflects MVP completion.
+- [x] The final demo is delivered and its result recorded.
+- [x] No post-MVP backlog features (signing/notarization/auto-update, `tauri-driver` E2E, advanced testing, AI key-security overhaul, bridge discovery/transport controls) were introduced during this phase.
 
 ## 5. Deferred / TODO (post-MVP backlog)
 
