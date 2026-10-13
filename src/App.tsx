@@ -15,6 +15,7 @@ import { createBridgeClient, BridgeConnectionState } from './services/bridgeServ
 import { AmazonMusicBar } from './components/AmazonMusicBar';
 import { FloatingLyricsWindow } from './components/FloatingLyricsWindow';
 import { BackgroundDesktop } from './components/BackgroundDesktop';
+import { APP_VERSION } from './appVersion';
 
 function resolveDesktopSong(nowPlaying: NowPlaying): Song {
   const title = nowPlaying.title?.trim() || 'Unknown Track';
@@ -289,6 +290,14 @@ export default function App() {
           onSeek={(timeMs) => setCurrentTimeMs(timeMs)}
         />
       </div>
+
+      {/* ─── Version annotation (translucent, bottom-right) ──────────── */}
+      <span
+        data-testid="app-version"
+        className="pointer-events-none fixed bottom-1 right-2 z-[60] select-none font-mono text-[10px] leading-none tracking-wider text-slate-400/40"
+      >
+        v{APP_VERSION}
+      </span>
     </div>
   );
 }

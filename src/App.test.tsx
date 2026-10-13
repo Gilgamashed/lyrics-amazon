@@ -2,6 +2,7 @@ import { render, screen, fireEvent, within, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
+import { APP_VERSION } from './appVersion';
 import { fetchLyrics } from './services/lyricsService';
 import { resolveAIConfig } from './services/aiService';
 import { NowPlaying, LyricsData, Song } from './types/lyrics';
@@ -109,6 +110,11 @@ describe('App', () => {
     expect(screen.getByText('Browser (Media Session)')).toBeInTheDocument();
     expect(vi.mocked(fetchLyrics)).not.toHaveBeenCalled();
     expect(bridgeBridge.client.start).toHaveBeenCalled();
+  });
+
+  it('renders the translucent app-version annotation', () => {
+    render(<App />);
+    expect(screen.getByTestId('app-version')).toHaveTextContent(`v${APP_VERSION}`);
   });
 
   it('registers Browser detection until the bridge reports connected', async () => {
