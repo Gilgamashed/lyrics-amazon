@@ -1,0 +1,38 @@
+[
+  {
+    "holdMs": 20000,
+    "nowPlaying": {
+      "source": "mock",
+      "title": "Espresso",
+      "artist": "Sabrina Carpenter",
+      "album": "Short n' Sweet",
+      "durationMs": 175000,
+      "positionMs": 90000,
+      "isPlaying": true
+    }
+  },
+  {
+    "holdMs": 20000,
+    "nowPlaying": {
+      "source": "mock",
+      "title": "Cruel Summer",
+      "artist": "Taylor Swift",
+      "album": "Lover",
+      "durationMs": 178000,
+      "positionMs": 3000,
+      "isPlaying": true
+    }
+  },
+  {
+    "holdMs": 20000,
+    "nowPlaying": {
+      "source": "mock",
+      "title": "City Lights",
+      "artist": null,
+      "album": null,
+      "durationMs": 120000,
+      "positionMs": 5000,
+      "isPlaying": true
+    }
+  }
+]
