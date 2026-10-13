@@ -48,7 +48,9 @@ export function resolveAIConfig(session?: Partial<AIConfig> | null): AIConfig {
 }
 
 export function isAIConfigured(config: AIConfig): boolean {
-  return Boolean(config.enabled && config.providerUrl && config.model && config.apiKey);
+  return Boolean(
+    config.enabled && config.providerUrl.trim() && config.model.trim() && config.apiKey.trim()
+  );
 }
 
 function buildPrompt(song: Song): string {
@@ -109,19 +111,19 @@ function toAnnotations(rawAnnotations: RawAIAnnotation[] | undefined, lines: Lyr
   rawAnnotations.forEach((raw, idx) => {
     if (typeof raw.content !== 'string' || !raw.content.trim()) return;
     const lineRef = typeof raw.lineRef === 'string' ? raw.lineRef.trim() : '';
+    // Only keep annotations that can actually be attached to a lyric line.
+    const match = lineRef ? lines.find((l) => l.text === lineRef && !l.annotationId) : undefined;
+    if (!match) return;
+
     const id = `ai-ann-${idx}`;
+    match.annotationId = id;
     annotations.push({
       id,
-      lineRef,
+      lineRef: match.text,
       header: (raw.header || 'AI Insight').trim(),
       content: raw.content.trim(),
       verifiedBy: 'AI Synthesized',
     });
-
-    if (lineRef) {
-      const match = lines.find((l) => l.text === lineRef && !l.annotationId);
-      if (match) match.annotationId = id;
-    }
   });
 
   return annotations;
