@@ -95,3 +95,35 @@ fn time_span_to_ms(value: TimeSpan) -> Option<i64> {
     let ms = value.Duration / 10_000;
     (ms > 0).then_some(ms)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn time_span_converts_hundreds_of_nanoseconds_to_ms() {
+        assert_eq!(time_span_to_ms(TimeSpan { Duration: 250_000 }), Some(25));
+        assert_eq!(time_span_to_ms(TimeSpan { Duration: 10_500 }), Some(1));
+    }
+
+    #[test]
+    fn time_span_rejects_zero_and_negative() {
+        assert_eq!(time_span_to_ms(TimeSpan { Duration: 0 }), None);
+        assert_eq!(time_span_to_ms(TimeSpan { Duration: -5_000 }), None);
+    }
+
+    #[test]
+    fn clean_keeps_text_and_drops_blank() {
+        assert_eq!(
+            clean(Ok(::windows::core::HSTRING::from("Track Title"))).as_deref(),
+            Some("Track Title")
+        );
+        assert_eq!(clean(Ok(::windows::core::HSTRING::from("   "))), None);
+        assert_eq!(
+            clean(Err(::windows::core::Error::from_hresult(
+                ::windows::core::HRESULT(-1)
+            ))),
+            None
+        );
+    }
+}

@@ -1,6 +1,7 @@
 use std::process::Command;
 
 use crate::bridge::now_playing::NowPlaying;
+use crate::bridge::source::parsers::parse_playerctl_metadata;
 use crate::bridge::source::{NowPlayingSource, SOURCE_ID};
 
 pub struct LinuxMprisSource;
@@ -26,38 +27,27 @@ impl NowPlayingSource for LinuxMprisSource {
         }
 
         let text = String::from_utf8_lossy(&output.stdout);
-        let mut fields = text.trim().splitn(6, '\t');
-
-        let title = clean_optional(fields.next());
-        let artist = clean_optional(fields.next());
-        let album = clean_optional(fields.next());
-        let duration_ms = fields.next().and_then(parse_micros_to_ms);
-        let position_ms = fields.next().and_then(parse_micros_to_ms);
-        let is_playing = fields
-            .next()
-            .map(|value| value.trim() == "Playing")
-            .unwrap_or(false);
-
-        Some(NowPlaying {
-            source: SOURCE_ID.to_string(),
-            title,
-            artist,
-            album,
-            duration_ms,
-            position_ms,
-            is_playing,
-        })
+        parse_playerctl_metadata(SOURCE_ID, &text)
     }
 }
 
-fn clean_optional(value: Option<&str>) -> Option<String> {
-    value
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-fn parse_micros_to_ms(value: &str) -> Option<i64> {
-    let micros = value.trim().parse::<i64>().ok()?;
-    (micros > 0).then_some(micros / 1000)
+    #[test]
+    fn source_id_matches_linux_adapter() {
+        assert_eq!(SOURCE_ID, "linux-mpris");
+    }
+
+    #[test]
+    fn parses_samples_through_shared_parser() {
+        let np = parse_playerctl_metadata(
+            SOURCE_ID,
+            "Smells Like Teen Spirit\tNirvana\tNevermind\t260000000\t130000000\tPlaying",
+        )
+        .unwrap();
+        assert_eq!(np.title.as_deref(), Some("Smells Like Teen Spirit"));
+        assert!(np.is_playing);
+    }
 }
