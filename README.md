@@ -140,10 +140,10 @@ npm run tauri:build
 - Because `cargo` is a native binary, run it with the Rust toolchain on `PATH` (e.g. `$env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"` on PowerShell) — the Tauri CLI shells out to `cargo metadata`.
 - Build artifacts land under `src-tauri/target/release/bundle/`:
 
-  | Artifact | Path | Size (0.2.0) |
+  | Artifact | Path | Size (0.2.1) |
   | :--- | :--- | ---: |
-  | NSIS installer | `bundle/nsis/Amazon Music Floating Lyrics_0.2.0_x64-setup.exe` | 3.22 MiB |
-  | MSI installer | `bundle/msi/Amazon Music Floating Lyrics_0.2.0_x64_en-US.msi` | 4.67 MiB |
+  | NSIS installer | `bundle/nsis/Amazon Music Floating Lyrics_0.2.1_x64-setup.exe` | 3.23 MiB |
+  | MSI installer | `bundle/msi/Amazon Music Floating Lyrics_0.2.1_x64_en-US.msi` | 4.67 MiB |
 
 - The installed app runs the UI and the embedded companion bridge together; on launch the bridge serves `GET /health` and `GET /now-playing` on `127.0.0.1:48765` (verified against the Phase 8 release build — `npm run bridge:smoke` reports **PASS**).
 - Installers are **unsigned** (no code-signing certificates in this project); Windows SmartScreen may warn when installing.
@@ -152,10 +152,10 @@ npm run tauri:build
 
 ### Install for Testing
 
-- **Download:** the Windows NSIS installer `Amazon Music Floating Lyrics_0.2.0_x64-setup.exe` from the project's [Releases page](https://github.com/Gilgamashed/lyrics-amazon/releases) (the updatable artifact of record; the `.msi` is kept as a secondary manual install).
+- **Download:** the Windows NSIS installer (latest release, e.g. `Amazon Music Floating Lyrics_0.2.1_x64-setup.exe`) from the project's [Releases page](https://github.com/Gilgamashed/lyrics-amazon/releases) (the updatable artifact of record; the `.msi` is kept as a secondary manual install).
 - **Install:** run the installer, then launch **Amazon Music Floating Lyrics**.
 - **SmartScreen (unsigned build):** Windows may show *"Windows protected your PC"* — click **More info** → **Run anyway**.
-- **Auto-update:** on launch the app checks the release endpoint; when a newer **signed** build exists it prompts you to **Update**, downloads and installs it, then relaunches. When offline or the endpoint is unreachable it stays quiet and the app keeps working.
+- **Auto-update:** on launch the app checks the release endpoint; when a newer **signed** build exists it prompts you to **Update**, downloads and installs it, then relaunches. When offline or the endpoint is unreachable it stays quiet and the app keeps working. (Verified: an installed `0.2.0` updated in-app to `0.2.1`.)
 - **Minimum requirements:** Windows 10/11 (x64) with the WebView2 runtime (preinstalled on current Windows).
 
 ## CI (GitHub Actions)

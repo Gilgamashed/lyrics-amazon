@@ -93,31 +93,31 @@ This is the **first post-MVP spec**. The 8-phase MVP roadmap in `specs/PROJECT_O
 - [x] The app version is unified at **`0.2.0`** across `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml`.
 - [x] `npm run tauri:build` produces the **0.2.0** Windows installers (NSIS `.exe` + MSI) locally.
 - [x] `tauri-plugin-updater` is registered; `bundle.createUpdaterArtifacts` and `plugins.updater` (public key + endpoint) are configured; the `updater:default` permission is granted.
-- [ ] The app checks for updates on launch and installs + relaunches a newer signed build when one exists; it degrades quietly when offline/unconfigured. *(Implemented and compiled into the release build; the live install/relaunch path was not observed — see the status note below.)*
-- [ ] The updater artifact signing keypair is used only via CI secrets (`TAURI_SIGNING_PRIVATE_KEY` / `_PASSWORD`); nothing secret is committed or bundled. *(Password-protected keypair generated; the public key is committed and the private key is kept out of the repo. The CI-secret wiring is deferred.)*
-- [ ] Pushing a `v0.2.0` tag runs `.github/workflows/release.yml` on `windows-latest` and publishes a GitHub Release containing the NSIS installer, the update artifacts (`.sig`), and `latest.json`. *(Workflow added; publishing deferred.)*
-- [ ] The published `latest.json` is reachable at the configured endpoint and matches the released version. *(Deferred.)*
-- [ ] An update from an earlier build to a newer one is observed to download, install, and relaunch successfully. *(Deferred — the live update test was intentionally skipped.)*
+- [x] The app checks for updates on launch and installs + relaunches a newer signed build when one exists; it degrades quietly when offline/unconfigured. *(Live-verified: an installed `0.2.0` prompted, downloaded, installed, and relaunched as `0.2.1`.)*
+- [x] The updater artifact signing keypair is used only via CI secrets (`TAURI_SIGNING_PRIVATE_KEY` / `_PASSWORD`); nothing secret is committed or bundled. *(Both secrets set; the release workflow signs with them. The public key is committed and the private key is kept out of the repo.)*
+- [x] Pushing a `v*` tag runs `.github/workflows/release.yml` on `windows-latest` and publishes a GitHub Release containing the NSIS installer, the update artifacts (`.sig`), and `latest.json`. *(`v0.2.0` and `v0.2.1` published; both release runs green.)*
+- [x] The published `latest.json` is reachable at the configured endpoint and matches the released version. *(Public endpoint serves `0.2.1` with the NSIS url + signature.)*
+- [x] An update from an earlier build to a newer one is observed to download, install, and relaunch successfully. *(Observed: installed `0.2.0` → in-app **Update** → `0.2.1`; app relaunched and `/health` = `ok`.)*
 - [x] The README documents downloading and installing the tester build (incl. the SmartScreen bypass) and the auto-update behavior.
 - [x] All existing quality gates pass (lint, build, 131 Vitest, coverage ≥ 85%, fmt, clippy, 36 Rust, 8 E2E, smoke, bridge:smoke).
 - [x] No deferred §5 items (signing/notarization, macOS/Linux installers, AI key-security overhaul, telemetry, store distribution) were introduced.
 - [x] `specs/PROMPTS.md` records this spec; `specs/PROJECT_OVERVIEW.MD` notes the post-MVP continuation.
 
-**Local implementation status (2026-10-13 — publishing not authorized):**
+**Live release status (2026-10-13 — go-live executed):**
 
-- Version unified at `0.2.0`; `tauri-plugin-updater` + `tauri-plugin-dialog` registered in `src-tauri/src/lib.rs`; `bundle.createUpdaterArtifacts = true` and `plugins.updater` (public key + `…/releases/latest/download/latest.json` endpoint, `windows.installMode = passive`) configured in `src-tauri/tauri.conf.json`; `updater:default` capability added.
-- Launch-time updater check is release-only (no-op in dev/test): on a newer signed build it shows an **Update / Later** prompt, and on confirm downloads, installs, and relaunches; offline/unreachable/404 degrades quietly (logs only).
-- Password-protected minisign keypair generated with `tauri signer generate`; the **public** key is committed in `tauri.conf.json`, the **private** key lives outside the repo at `%USERPROFILE%\.tauri\lyrics-amazon.key`.
-- `.github/workflows/release.yml` added (`v*` tags, `windows-latest`, `tauri-apps/tauri-action@v1`, `updaterJsonPreferNsis: true`, `permissions: contents: write`) — dormant until a tag is pushed.
-- README "Install for Testing" section added (download → install → SmartScreen bypass → auto-update; NSIS is the updater artifact of record).
-- Signed `npm run tauri:build` produced `Amazon Music Floating Lyrics_0.2.0_x64-setup.exe` (3.22 MiB, NSIS) and `…_0.2.0_x64_en-US.msi` (4.67 MiB) plus both `.sig` updater artifacts. All gates green (frontend lint/build, 131 Vitest, combined coverage **90.61%** ≥ 85%, `cargo fmt`/`clippy`, 36 Rust tests, 8 E2E, `smoke`, `bridge:smoke`).
+- Version unified at `0.2.0`, then bumped to `0.2.1`; `tauri-plugin-updater` + `tauri-plugin-dialog` registered in `src-tauri/src/lib.rs`; `bundle.createUpdaterArtifacts = true` and `plugins.updater` (public key + `…/releases/latest/download/latest.json` endpoint, `windows.installMode = passive`) configured in `src-tauri/tauri.conf.json`; `updater:default` capability added.
+- Launch-time updater check is release-only (no-op in dev/test): on a newer signed build it shows an **Update / Later** prompt, and on confirm downloads, installs, and relaunches; offline/unreachable/404 degrades quietly (logs only). **Live-verified** during the `0.2.0 → 0.2.1` update.
+- Password-protected minisign keypair generated with `tauri signer generate`; the **public** key is committed in `tauri.conf.json`, the **private** key lives outside the repo at `%USERPROFILE%\.tauri\lyrics-amazon.key`; the CI secrets `TAURI_SIGNING_PRIVATE_KEY` / `_PASSWORD` are set.
+- `.github/workflows/release.yml` (`v*` tags, `windows-latest`, `tauri-apps/tauri-action@v1`, `updaterJsonPreferNsis: true`, `permissions: contents: write`) is live: `v0.2.0` and `v0.2.1` both published non-draft/non-prerelease Releases with NSIS + MSI + `.sig` + `latest.json`.
+- README "Install for Testing" section (download → install → SmartScreen bypass → auto-update; NSIS is the updater artifact of record).
+- `0.2.1` also adds a translucent bottom-right app-version annotation. Signed `npm run tauri:build` produced `Amazon Music Floating Lyrics_0.2.1_x64-setup.exe` (3.23 MiB, NSIS) and `…_0.2.1_x64_en-US.msi` (4.67 MiB) plus both `.sig` updater artifacts. All gates green (frontend lint/build, 132 Vitest, combined coverage **90.79%** ≥ 85%, `cargo fmt`/`clippy`, 36 Rust tests, 8 E2E, `smoke`, `bridge:smoke`).
 
-**Go-live runbook (deferred, requires explicit approval):**
+**Go-live runbook (executed 2026-10-13):**
 
-1. Make the repository public (`gh repo edit Gilgamashed/lyrics-amazon --visibility public`) — required for the updater endpoint and tester downloads.
-2. Set secrets: `gh secret set TAURI_SIGNING_PRIVATE_KEY` and `gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
-3. `git tag v0.2.0 && git push origin v0.2.0` → watch `release.yml`; confirm the Release assets (NSIS + MSI + `.sig` + `latest.json`) and open `…/releases/latest/download/latest.json`.
-4. (Optional) publish `v0.2.1` and observe an installed `0.2.0` prompt-update, to check DoD items 4/8.
+1. Repository made public (`gh repo edit Gilgamashed/lyrics-amazon --visibility public`) — required for the updater endpoint and tester downloads.
+2. Secrets set: `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+3. `v0.2.0` tagged/pushed → release run green; confirmed the Release assets (NSIS + MSI + `.sig` + `latest.json`) and the public `…/releases/latest/download/latest.json`.
+4. `v0.2.1` published and the installed `0.2.0` in-app update observed to prompt, download, install, and relaunch as `0.2.1` (DoD items 4/8).
 
 ## 5. Deferred / TODO
 
