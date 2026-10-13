@@ -100,21 +100,21 @@ This is Phase 7 of the 8-phase roadmap described in `specs/PROJECT_OVERVIEW.MD` 
 
 ## 4. Definition of Done
 
-- [ ] Vitest + jsdom + Testing Library are configured; `npm run test` runs the unit/component suites.
-- [ ] Frontend service unit tests pass (`lyricsService`, `lyricsCache`, `aiService`, `aiLyricsStore`, `bridgeService`).
-- [ ] Frontend component/state tests pass (`AmazonMusicBar` indicator, `OptionsMenu`, lyric views, `App` timing + bridge events).
-- [ ] Frontend network-resiliency tests pass (provider timeouts, errors, and malformed payloads fall through the cascade gracefully).
-- [ ] Rust unit tests pass: `NowPlaying` schema, sanitizers/formatters, and macOS/Linux metadata parsers (fixtures, runnable on Windows).
-- [ ] Rust integration tests pass: `/health`, `/now-playing`, `/ws` snapshot + push via `MockNowPlayingSource`, localhost-only binding, port-in-use and client-disconnect paths.
-- [ ] E2E suite passes: real bridge binary + mock script + headless browser assert badge, detected track, lyrics load, playback sync, track change, and graceful degradation after the bridge is killed.
-- [ ] Browser-origin HTTP/WS access to the bridge is verified; any missing CORS headers found are fixed (localhost-only) and covered by tests.
-- [ ] Combined line coverage is ≥ 85% (Vitest v8 + `cargo-llvm-cov`), with documented aggregation, per-side reporting, and exclusions.
-- [ ] `npm run lint`, `cargo fmt --check`, `cargo clippy --all-targets`, and `cargo test` pass with test code included.
-- [ ] The existing smoke scripts (`npm run smoke`, `npm run bridge:smoke`) still pass.
-- [ ] README documents all testing commands, the coverage policy, and the E2E harness.
-- [ ] Findings are recorded in §6 (coverage table, uncovered bugs, and known limitations).
-- [ ] `specs/PROJECT_OVERVIEW.MD` reflects the 8-phase roadmap (Testing = Phase 7; Hardening & Release = Phase 8); `specs/PROMPTS.md` records this phase.
-- [ ] No Phase 8 features were introduced during this phase.
+- [x] Vitest + jsdom + Testing Library are configured; `npm run test` runs the unit/component suites.
+- [x] Frontend service unit tests pass (`lyricsService`, `lyricsCache`, `aiService`, `aiLyricsStore`, `bridgeService`).
+- [x] Frontend component/state tests pass (`AmazonMusicBar` indicator, `OptionsMenu`, lyric views, `App` timing + bridge events).
+- [x] Frontend network-resiliency tests pass (provider timeouts, errors, and malformed payloads fall through the cascade gracefully).
+- [x] Rust unit tests pass: `NowPlaying` schema, sanitizers/formatters, and macOS/Linux metadata parsers (fixtures, runnable on Windows).
+- [x] Rust integration tests pass: `/health`, `/now-playing`, `/ws` snapshot + push via `MockNowPlayingSource`, localhost-only binding, port-in-use and client-disconnect paths.
+- [x] E2E suite passes: real bridge binary + mock script + headless browser assert badge, detected track, lyrics load, playback sync, track change, and graceful degradation after the bridge is killed.
+- [x] Browser-origin HTTP/WS access to the bridge is verified; any missing CORS headers found are fixed (localhost-only) and covered by tests.
+- [x] Combined line coverage is ≥ 85% (Vitest v8 + `cargo-llvm-cov`), with documented aggregation, per-side reporting, and exclusions.
+- [x] `npm run lint`, `cargo fmt --check`, `cargo clippy --all-targets`, and `cargo test` pass with test code included.
+- [x] The existing smoke scripts (`npm run smoke`, `npm run bridge:smoke`) still pass.
+- [x] README documents all testing commands, the coverage policy, and the E2E harness.
+- [x] Findings are recorded in §6 (coverage table, uncovered bugs, and known limitations).
+- [x] `specs/PROJECT_OVERVIEW.MD` reflects the 8-phase roadmap (Testing = Phase 7; Hardening & Release = Phase 8); `specs/PROMPTS.md` records this phase.
+- [x] No Phase 8 features were introduced during this phase.
 
 ## 5. Deferred / TODO
 
@@ -125,12 +125,42 @@ This is Phase 7 of the 8-phase roadmap described in `specs/PROJECT_OVERVIEW.MD` 
 
 ## 6. Findings (recorded during execution)
 
-> This section is filled in when the suites are implemented and run. It must contain at least the table below plus a short list of bugs uncovered and known gaps; the DoD is not complete while this section is empty.
+> Executed on Windows 11 (Node 26, Rust stable/MSVC). All suites are uncommitted on `dev` and pass locally.
 
 | Suite | Instrumented lines | Covered | Coverage |
 | :--- | ---: | ---: | ---: |
-| Frontend (Vitest v8) | — | — | — |
-| Rust core (`cargo-llvm-cov`) | — | — | — |
-| **Combined (gate: ≥ 85%)** | — | — | — |
+| Frontend (Vitest v8) | 1274 | 1172 | 91.99 % |
+| Rust core (`cargo-llvm-cov`) | 937 | 880 | 93.92 % |
+| **Combined (gate: ≥ 85%)** | **2211** | **2052** | **92.81 %** |
 
-Known gaps / limitations: _(to be recorded — e.g., SMTC cannot be mocked, macOS/Linux adapters fixture-tested only, E2E uses a mock now-playing source rather than a live Amazon Music session)._
+### Exclusions (only the spec-approved set, enforced by `scripts/coverage-report.ts`)
+`src/main.tsx`, all `*.test.ts(x)`, `src/test/**` (harness/fixtures), `src-tauri/src/main.rs`, `src-tauri/build.rs`, `src-tauri/gen/**`.
+Note: `src-tauri/src/lib.rs` (the Tauri GUI entry that spawns the bridge) remains in the combined count at 0 % — it is only exercised by a full Tauri runtime and is covered by design through the E2E binary run, not by instrumented unit tests.
+
+### Results by layer
+- **Frontend services via Vitest (63 tests):** lyrics parsing, curated/remote merge + dedupe, fetch cascade + cache bypass, TTL/LRU, AI config precedence + JSON extraction + annotations, AI-lyrics store gating/corrupt storage, bridge URL resolution, HTTP snapshot, WS reconnect/backoff with fake timers. Per-file service line coverage: `lyricsService` 100 %, `lyricsCache` 100 %, `bridgeService` 100 %, `aiService` 98.33 %, `aiLyricsStore` 96 %.
+- **Frontend components + App (68 tests, all suites 131 total):** detection indicator, auto-detect, search + empty state, OptionsMenu draft/key masking + clear, Karaoke active-line timing (incl. sync offset), Full-sheet search/highlight/copy, Genius panel, floating window drag/resize/clamp, backdrops, and the App state machine (rAF tick, track-change dedupe, media session metadata + actions, bridge handler rebound to latest AI config, AI save path with cache bypass, graceful degradation).
+- **Rust core (36 tests):** `NowPlaying` serde + idle, `parse_nowplaying_cli_json()` / `parse_playerctl_metadata()` fixtures on Windows, sanitizers/time-span formatting, poller diff/broadcast via injected sources and `BRIDGE_MOCK_SCRIPT`, axum `/health`, `/now-playing`, `/ws` (snapshot-on-connect, push-on-change, no duplicate frames when unchanged, malformed frames tolerated), localhost-only CORS + binding, port-in-use, lagged clients.
+- **E2E (Playwright, 8 tests):** real `cargo build` of the bridge + `BRIDGE_MOCK_SCRIPT` fixture + `vite preview` of the built UI + system Chrome: boot into curated Espresso (karaoke lyrics), Desktop (native) badge, mocked track-change to Cruel Summer re-syncs the bar + lyrics, unknown track maps to "Unknown Artist", HTTP `/health` + `/now-playing`, WebSocket stream observes ≥ 2 distinct snapshots, and killing the bridge flips the UI back to "Browser (Media Session)" without crashing.
+
+### Bugs / correctness fixes surfaced by the tests
+- **CORS on the bridge HTTP endpoint** (expected per §3.3): browsers denied the `fetch("/now-playing")` upgrade from a non-Node origin. Fixed with a localhost-only CORS layer (`bridge/mod.rs`: `cors_layer` reflects `Origin` only when `is_local_origin` — `localhost`, `*.localhost`, `127.0.0.1` on any port, plus `tauri://localhost` for the webview; OPTIONS preflight returns 204 with the allowed methods). Covered by `cors_reflects_allowed_localhost_origins`, `cors_is_not_added_for_foreign_or_missing_origins`, and `cors_answers_options_preflight_for_localhost`; exercised end-to-end by the browser-origin E2E tests.
+- **WS frames duplicated on unchanged polls:** the poller published on every tick, so an unchanged Amazon Music session pushed redundant frames. `poll_once` now publishes only when the source value differs from the last *published* state (`state.current`, not the OS fetch); `ws_does_not_duplicate_frames_when_unchanged` pins `poll_once` returning `false` and the client receiving no new frame when the value is unchanged.
+- **`aiService.toAnnotations`:** previously kept annotations even when they no longer matched any lyric line (e.g. AI returned a different wording); now drops annotations whose non-empty `lineRef` does not exactly match a line (`lines.find((l) => l.text === lineRef && !l.annotationId)`) — one per line at most, ids `ai-ann-<idx>`, `verifiedBy: "AI Synthesized"`.
+- **`isAIConfigured`:** was comparing raw fields, so a config with blank/whitespace `providerUrl`/`model`/`apiKey` counted as configured; now trims before evaluating.
+- **Time-formatting decisions pinned by tests:** `parseLrc` accepts sub-second fractional digits (e.g. `[00:01.050]` → 1050 ms) but single-digit fractions (`[00:01.5]`) are intentionally not parseable; cache TTL is strictly `> 7 days`.
+
+### Known gaps / limitations
+- **SMTC cannot be mocked:** the poller injection (`spawn_poller_with`) + `BRIDGE_MOCK_SCRIPT` replaces live SMTC, so the real Windows SMTC path is covered by the unit-level source wrapper (`bridge/source/windows.rs`) but not end-to-end.
+- **macOS/Linux adapters are fixture-tested only** (`nowplaying-cli` / `playerctl` parsers run everywhere); live validation deferred to Phase 8.
+- **E2E uses a scripted now-playing source** rather than a live Amazon Music session; lyric fetches for unknown tracks go to the network and fall back via the existing cascade if offline.
+- **Playwright browsers:** bundled Chromium download is unreliable (cdn.playwright.dev); the suite runs against system Chrome (`channel: 'chrome'` in `playwright.config.ts`). Edge is also available as a fallback.
+- **`src-tauri/src/lib.rs` (0 %)** as noted above — GUI entry exercised only through E2E. **App.tsx is the lowest FE file (75.73 %)**; remaining branches are dev-only/debug UI paths.
+
+### Commands
+- `npm run test` — Vitest unit/component suites (131).
+- `npm run test:coverage` — Vitest with v8 coverage.
+- `npm run coverage:report` — runs FE coverage + `cargo llvm-cov --json`, merges, enforces the ≥ 85 % combined gate.
+- `npm run test:e2e` — Playwright (builds UI + bridge, spawns bridge with mock script, runs 8 tests).
+- `cd src-tauri && cargo test` ; `cargo fmt --check` ; `cargo clippy --all-targets` — Rust gates.
+- Smoke scripts unchanged: `npm run smoke`, `npm run bridge:smoke`.
