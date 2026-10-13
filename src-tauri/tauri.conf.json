@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
 "productName": "Amazon Music Floating Lyrics",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "identifier": "com.lyrics.amazonmusic",
   "build": {
     "frontendDist": "../dist",
@@ -26,6 +26,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -35,6 +36,17 @@
     ],
     "android": {
       "debugApplicationIdSuffix": ".debug"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDcyNkU1QjBBRjMzMTM3ODcKUldTSE56SHpDbHR1Y2pySWdWdzRpQ2pqQXFVa05vY3VyaXJqWHk0bTNndStWLytrYTk3L0RwSGYK",
+      "endpoints": [
+        "https://github.com/Gilgamashed/lyrics-amazon/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }
