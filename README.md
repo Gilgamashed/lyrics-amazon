@@ -7,7 +7,7 @@ A standalone, desktop-style companion that retrieves synchronized lyrics and Gen
 - **Dual display modes:** Synchronized Karaoke and Full Lyrics Sheet.
 - **Window experience:** opacity/blur sliders, pin-to-top, minimize-to-pill, resize handles, and window presets.
 
-> Status: Phase 8 (Hardening & Release) — **MVP complete**. See `specs/PROJECT_OVERVIEW.MD` for the roadmap and `specs/00_AI-SAFE.md` for the SpecDD scope rules.
+> Status: Phase 8 (Hardening & Release) — **MVP complete**; post-MVP packaging for live testing in progress (`specs/09_SPEC_POSTMVP-APP-PACK.md`). See `specs/PROJECT_OVERVIEW.MD` for the roadmap and `specs/00_AI-SAFE.md` for the SpecDD scope rules.
 
 ## Prerequisites
 
@@ -130,7 +130,7 @@ The Amazon Music **desktop app** is detected by a Rust-native bridge hosted in t
 
 ## Packaging & Release
 
-Produce the installable desktop app (Windows, built in Phase 8):
+Produce the installable desktop app (Windows, built in Phase 8; versioned and wired for live testing in the post-MVP packaging spec `specs/09_SPEC_POSTMVP-APP-PACK.md`):
 
 ```bash
 npm run tauri:build
@@ -140,14 +140,23 @@ npm run tauri:build
 - Because `cargo` is a native binary, run it with the Rust toolchain on `PATH` (e.g. `$env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"` on PowerShell) — the Tauri CLI shells out to `cargo metadata`.
 - Build artifacts land under `src-tauri/target/release/bundle/`:
 
-  | Artifact | Path | Size (0.1.0) |
+  | Artifact | Path | Size (0.2.0) |
   | :--- | :--- | ---: |
-  | NSIS installer | `bundle/nsis/Amazon Music Floating Lyrics_0.1.0_x64-setup.exe` | 2.17 MiB |
-  | MSI installer | `bundle/msi/Amazon Music Floating Lyrics_0.1.0_x64_en-US.msi` | 3.23 MiB |
+  | NSIS installer | `bundle/nsis/Amazon Music Floating Lyrics_0.2.0_x64-setup.exe` | 3.22 MiB |
+  | MSI installer | `bundle/msi/Amazon Music Floating Lyrics_0.2.0_x64_en-US.msi` | 4.67 MiB |
 
 - The installed app runs the UI and the embedded companion bridge together; on launch the bridge serves `GET /health` and `GET /now-playing` on `127.0.0.1:48765` (verified against the Phase 8 release build — `npm run bridge:smoke` reports **PASS**).
 - Installers are **unsigned** (no code-signing certificates in this project); Windows SmartScreen may warn when installing.
-- Cross-platform installers (macOS `.dmg`/`.app`, Linux `.rpm`/`.deb`/AppImage) are not produced in this phase — the macOS/Ubuntu CI matrix validates that frontend + Rust core build and test cleanly on those OSes.
+- `bundle.createUpdaterArtifacts` is enabled, so each build also emits updater signature files (`*-setup.exe.sig`, `*.msi.sig`) and the release pipeline publishes a `latest.json` manifest for the in-app updater. Signing uses a minisign keypair managed only as CI secrets (`TAURI_SIGNING_PRIVATE_KEY` / `_PASSWORD`) — independent of Windows code signing.
+- Cross-platform installers (macOS `.dmg`/`.app`, Linux `.rpm`/`.deb`/AppImage) are not produced yet — the macOS/Ubuntu CI matrix validates that frontend + Rust core build and test cleanly on those OSes.
+
+### Install for Testing
+
+- **Download:** the Windows NSIS installer `Amazon Music Floating Lyrics_0.2.0_x64-setup.exe` from the project's [Releases page](https://github.com/Gilgamashed/lyrics-amazon/releases) (the updatable artifact of record; the `.msi` is kept as a secondary manual install).
+- **Install:** run the installer, then launch **Amazon Music Floating Lyrics**.
+- **SmartScreen (unsigned build):** Windows may show *"Windows protected your PC"* — click **More info** → **Run anyway**.
+- **Auto-update:** on launch the app checks the release endpoint; when a newer **signed** build exists it prompts you to **Update**, downloads and installs it, then relaunches. When offline or the endpoint is unreachable it stays quiet and the app keeps working.
+- **Minimum requirements:** Windows 10/11 (x64) with the WebView2 runtime (preinstalled on current Windows).
 
 ## CI (GitHub Actions)
 
@@ -156,6 +165,8 @@ A workflow (`.github/workflows/ci.yml`) runs on every push to `dev` and on pull 
 - **`quality-gates`** (Windows runner): `tsc --noEmit` lint, production build, 131 Vitest tests, the combined ≥ 85% coverage gate, `cargo fmt --check`, `cargo clippy --all-targets`, 36 Rust tests, and the 8-test Playwright E2E suite (system Chrome is preinstalled on the runner — no bundled Chromium download).
 - **`platform-matrix`** (macOS + Ubuntu runners): `npm ci`, lint, build, and `cargo test` — the multi-platform validation cover (Ubuntu installs the Tauri system dependencies first).
 - The workflow is intentionally **secrets-free** (public runners, no signing) and caches the npm and Cargo build caches between runs.
+
+A second workflow (`.github/workflows/release.yml`) runs when a `v*` tag is pushed (e.g. `v0.2.0`) on a `windows-latest` runner: it installs Node/Rust, runs lint + the Vitest suite, then builds and publishes a **GitHub Release** via `tauri-apps/tauri-action` containing the NSIS installer, the MSI, the updater `.sig` artifacts, and `latest.json`. It is the only workflow that uses secrets (the updater signing key) and is scoped to `contents: write`.
 
 ## Testing
 

@@ -101,6 +101,8 @@ The project is considered complete when it satisfies the following functional an
 | **Phase 7** | **Automated testing & verification**: unit/component tests (frontend + Rust core), bridge HTTP/WS integration tests, and a real frontend↔backend E2E suite, targeting ≥ 85% combined line coverage with documented findings. |
 | **Phase 8** | Hardening & release: typecheck/lint clean, multi-platform validation, docs, and final demo. |
 
+> **Post-MVP track:** the 8-phase MVP above is complete. Work now continues on the post-MVP backlog catalogued in `specs/08_SPEC_HARDENING.md` §5 (code signing/notarization, auto-update, cross-platform installers, and more). The first post-MVP spec is `specs/09_SPEC_POSTMVP-APP-PACK.md` — **App Packaging for Live Testing** (versioned, self-updating Windows build distributed via GitHub Releases).
+
 ---
 
 ## 6. Reference Technology Stack
