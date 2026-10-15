@@ -103,6 +103,8 @@ The project is considered complete when it satisfies the following functional an
 | **Phase 8** | Hardening & release: typecheck/lint clean, multi-platform validation, docs, and final demo. |
 
 > **Post-MVP track:** the 8-phase MVP above is complete. Work now continues on the post-MVP backlog catalogued in `specs/08_SPEC_HARDENING.md` §5 (code signing/notarization, auto-update, cross-platform installers, and more). The first post-MVP spec is `specs/09_SPEC_POSTMVP-APP-PACK.md` — **App Packaging for Live Testing** (versioned, self-updating Windows build distributed via GitHub Releases); the second is `specs/10_SPEC_POSTMVP-MIN-PATCH.md` — **Lyrics Fallback & UX Minor Patch** (live Genius source + genuine "Lyrics not found", the multi-provider chain before AI, Amazon Music session prioritization on Windows, and per-song thumbs up/down), landed on `dev` with no version bump or release.
+>
+> **Release flow:** `dev` is the integration branch (now at version **0.3.0**). A long-lived **`staging`** branch carries the in-progress release — it was cut from `dev` and is advanced by merging `dev` → `staging`; CI runs on its pushes. Stable releases are cut from `staging` as `vX.Y.Z` tags; `vX.Y.Z-rc.N` tags publish as GitHub **pre-releases** for manual testing only (the updater reads `releases/latest`, which excludes pre-releases). First staged candidate: **`v0.3.0-rc.1`**.
 
 ---
 

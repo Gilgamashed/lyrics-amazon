@@ -166,6 +166,13 @@ npm run tauri:build
 - `bundle.createUpdaterArtifacts` is enabled, so each build also emits updater signature files (`*-setup.exe.sig`, `*.msi.sig`) and the release pipeline publishes a `latest.json` manifest for the in-app updater. Signing uses a minisign keypair managed only as CI secrets (`TAURI_SIGNING_PRIVATE_KEY` / `_PASSWORD`) — independent of Windows code signing.
 - Cross-platform installers (macOS `.dmg`/`.app`, Linux `.rpm`/`.deb`/AppImage) are not produced yet — the macOS/Ubuntu CI matrix validates that frontend + Rust core build and test cleanly on those OSes.
 
+### Branching & Staging
+
+- **`dev`** — integration branch; every change lands here first and is validated by CI. Currently carries version **0.3.0**.
+- **`staging`** — long-lived release-candidate branch where the in-progress version is staged (cut from `dev`, advanced by merging `dev` → `staging`). CI runs on its pushes too.
+- **`vX.Y.Z` tags** — cut from `staging` for a stable release; the tag workflow publishes a normal GitHub Release and the in-app updater offers it.
+- **`vX.Y.Z-rc.N` tags** — pre-releases for manual testing only. Any tag containing `-` publishes as a GitHub **pre-release** (e.g. `v0.3.0-rc.1`); the updater only reads `releases/latest`, so pre-releases are never offered automatically.
+
 ### Install for Testing
 
 - **Download:** the Windows NSIS installer (latest release, e.g. `Amazon Music Floating Lyrics_0.2.1_x64-setup.exe`) from the project's [Releases page](https://github.com/Gilgamashed/lyrics-amazon/releases) (the updatable artifact of record; the `.msi` is kept as a secondary manual install).
@@ -176,13 +183,13 @@ npm run tauri:build
 
 ## CI (GitHub Actions)
 
-A workflow (`.github/workflows/ci.yml`) runs on every push to `dev` and on pull requests:
+A workflow (`.github/workflows/ci.yml`) runs on every push to `dev` and `staging` and on pull requests:
 
 - **`quality-gates`** (Windows runner): `tsc --noEmit` lint, production build, 172 Vitest tests, the combined ≥ 85% coverage gate, `cargo fmt --check`, `cargo clippy --all-targets`, 38 Rust tests, and the 8-test Playwright E2E suite (system Chrome is preinstalled on the runner — no bundled Chromium download).
 - **`platform-matrix`** (macOS + Ubuntu runners): `npm ci`, lint, build, and `cargo test` — the multi-platform validation cover (Ubuntu installs the Tauri system dependencies first).
 - The workflow is intentionally **secrets-free** (public runners, no signing) and caches the npm and Cargo build caches between runs.
 
-A second workflow (`.github/workflows/release.yml`) runs when a `v*` tag is pushed (e.g. `v0.2.0`) on a `windows-latest` runner: it installs Node/Rust, runs lint + the Vitest suite, then builds and publishes a **GitHub Release** via `tauri-apps/tauri-action` containing the NSIS installer, the MSI, the updater `.sig` artifacts, and `latest.json`. It is the only workflow that uses secrets (the updater signing key) and is scoped to `contents: write`.
+A second workflow (`.github/workflows/release.yml`) runs when a `v*` tag is pushed (e.g. `v0.2.0` or a pre-release `v0.3.0-rc.1`) on a `windows-latest` runner: it installs Node/Rust, runs lint + the Vitest suite, then builds and publishes a **GitHub Release** via `tauri-apps/tauri-action` containing the NSIS installer, the MSI, the updater `.sig` artifacts, and `latest.json`. Tags containing `-` are marked as GitHub **pre-releases** and excluded from `releases/latest`, so they are not auto-update candidates. It is the only workflow that uses secrets (the updater signing key) and is scoped to `contents: write`.
 
 ## Testing
 
