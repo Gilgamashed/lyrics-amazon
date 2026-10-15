@@ -60,8 +60,8 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Amazon Music Floating Lyrics ${{ github.ref_name }}"
-          releaseBody: "Download the NSIS installer (`*-setup.exe`) below and run it. This is an unsigned build: approve the Windows SmartScreen prompt (More info -> Run anyway). The app checks for updates on launch and prompts to install newer versions."
+          releaseBody: "${{ contains(github.ref_name, '-') && 'Pre-release build for staging/testing only - not for general use. The in-app updater ignores pre-releases, so existing users will not be offered it automatically. Download the NSIS installer (`*-setup.exe`) below and run it; this is an unsigned build, so approve the Windows SmartScreen prompt (More info -> Run anyway).' || 'Download the NSIS installer (`*-setup.exe`) below and run it. This is an unsigned build: approve the Windows SmartScreen prompt (More info -> Run anyway). The app checks for updates on launch and prompts to install newer versions.' }}"
           releaseDraft: false
-          prerelease: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
           generateReleaseNotes: true
           updaterJsonPreferNsis: true

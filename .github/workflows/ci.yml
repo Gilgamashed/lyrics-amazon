@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - dev
+      - staging
   pull_request:
   workflow_dispatch:
 
