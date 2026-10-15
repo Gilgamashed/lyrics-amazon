@@ -5,6 +5,7 @@ import { resolveAIConfig, isAIConfigured, synthesizeLyrics } from './aiService';
 import { getSavedAILyrics, saveAILyrics } from './aiLyricsStore';
 import { getAcceptedLyrics } from './userLyricsStore';
 import { runProviderChain } from './providers/chain';
+import { httpFetch } from './httpClient';
 
 export { parseLrc } from './lrcParser';
 
@@ -28,7 +29,7 @@ export async function searchTracks(query: string): Promise<Song[]> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3500);
 
-    const res = await fetch(`https://lrclib.net/api/search?q=${encodeURIComponent(query)}`, {
+    const res = await httpFetch(`https://lrclib.net/api/search?q=${encodeURIComponent(query)}`, {
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
@@ -121,7 +122,7 @@ export async function fetchLyrics(
 
 /**
  * Resolves lyrics through: accepted (user override) -> curated -> provider chain
- * (Genius, LRCLIB, azlyrics, letras.mus.br, musixmatch) -> saved AI -> AI -> not found.
+ * (Genius, LRCLIB) -> saved AI -> AI -> not found.
  */
 async function fetchLyricsUncached(
   song: Song,

@@ -1,12 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { extractLyricsFromHtml as extractGenius } from './genius';
-import { extractLyrics as extractAzLyrics } from './azlyrics';
-import { extractLyrics as extractLetras } from './letras';
-import { extractLyrics as extractMusixmatch } from './musixmatch';
 import { extractPlain, isAbortError, linesToPlain, normalize } from './base';
 
-describe('provider html extraction', () => {
-  it('extracts and decodes Genius lyrics containers', () => {
+describe('genius html extraction', () => {
+  it('extracts and decodes a single lyrics container', () => {
     const html =
       '<div data-lyrics-container="true">I&#39;m the first line<br/>Second line</div>';
     const lyrics = extractGenius(html);
@@ -14,41 +11,45 @@ describe('provider html extraction', () => {
     expect(lyrics).toContain('Second line');
   });
 
+  it('keeps nested markup inside a container (does not truncate at the first </div>)', () => {
+    const html =
+      '<div data-lyrics-container="true"><div class="block">This is Line A here<br/>And this is Line B here</div></div>';
+    const lyrics = extractGenius(html);
+    expect(lyrics).toContain('This is Line A here');
+    expect(lyrics).toContain('And this is Line B here');
+  });
+
+  it('joins multiple containers split around ad slots in document order', () => {
+    const html =
+      '<div data-lyrics-container="true">[Verse 1]<br/>First half</div>' +
+      '<div class="ad"></div>' +
+      '<div data-lyrics-container="true">[Chorus]<br/>Second half</div>';
+    const lyrics = extractGenius(html);
+    expect(lyrics?.indexOf('First half')).toBeLessThan(lyrics?.indexOf('Second half') ?? -1);
+  });
+
+  it('drops the Contributors/Translations widget and description prefix', () => {
+    const html =
+      '<div data-lyrics-container="true">' +
+      '99 ContributorsTranslationsTürkçeEspañolYesterday Lyrics The most covered song. Read More' +
+      '<br/><br/>[Verse 1]<br/>Real lyric one<br/>Real lyric two' +
+      '</div>';
+    const lyrics = extractGenius(html);
+    expect(lyrics).toContain('Real lyric one');
+    expect(lyrics).not.toContain('Contributors');
+    expect(lyrics).not.toContain('Read More');
+  });
+
+  it('decodes numeric and named HTML entities', () => {
+    const html =
+      '<div data-lyrics-container="true">A &amp; B &#39;quoted&#39; &lt;tag&gt; &#x27;x&#x27;</div>';
+    const lyrics = extractGenius(html);
+    expect(lyrics).toBe("A & B 'quoted' <tag> 'x'");
+  });
+
   it('returns null when Genius markup is absent or too short', () => {
     expect(extractGenius('<html></html>')).toBeNull();
     expect(extractGenius('<div data-lyrics-container="true">hi</div>')).toBeNull();
-  });
-
-  it('extracts azlyrics blocks between the license marker and the next div', () => {
-    const marker =
-      '<!-- Usage of azlyrics.com content by any third-party lyrics provider is prohibited by our licensing agreement. Sorry about that. -->';
-    const html = `<div>${marker}<br>First real line<br>Second real line</div>`;
-    const lyrics = extractAzLyrics(html);
-    expect(lyrics).toContain('First real line');
-    expect(lyrics).toContain('Second real line');
-  });
-
-  it('returns null for azlyrics without the marker', () => {
-    expect(extractAzLyrics('<div>no marker here</div>')).toBeNull();
-  });
-
-  it('extracts letras.mus.br lyric-original blocks', () => {
-    const html = '<div class="lyric-original"><p>Line one here</p><p>Line two here</p></div>';
-    const lyrics = extractLetras(html);
-    expect(lyrics).toContain('Line one here');
-    expect(lyrics).toContain('Line two here');
-  });
-
-  it('extracts musixmatch lyric spans', () => {
-    const html =
-      '<span class="lyrics__content__ok">First musixmatch line</span><span class="lyrics__content__ok">Second musixmatch line</span>';
-    const lyrics = extractMusixmatch(html);
-    expect(lyrics).toContain('First musixmatch line');
-    expect(lyrics).toContain('Second musixmatch line');
-  });
-
-  it('returns null when musixmatch markup is absent', () => {
-    expect(extractMusixmatch('<html></html>')).toBeNull();
   });
 });
 

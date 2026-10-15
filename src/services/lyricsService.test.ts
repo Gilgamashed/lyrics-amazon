@@ -37,7 +37,7 @@ function makeAccepted(text: string): LyricsData {
     artist: SONG.artist,
     album: SONG.album,
     albumArt: '',
-    provider: 'azlyrics',
+    provider: 'Genius',
     syncedLyrics: [{ id: 'acc-0', startTimeMs: 0, text }],
     plainLyrics: text,
     annotations: [],
@@ -368,7 +368,7 @@ describe('fetchLyrics', () => {
     saveAcceptedLyrics(SONG, makeAccepted('Accepted override'));
 
     const result = await fetchLyrics(SONG);
-    expect(result?.provider).toBe('azlyrics');
+    expect(result?.provider).toBe('Genius');
     expect(result?.syncedLyrics[0].text).toBe('Accepted override');
     expect(fetchMock).not.toHaveBeenCalled();
   });

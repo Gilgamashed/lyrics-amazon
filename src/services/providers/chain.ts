@@ -1,22 +1,13 @@
 import { Song } from '../../types/lyrics';
 import { fetchGenius } from './genius';
 import { fetchLrcLib } from './lrclib';
-import { fetchAzLyrics } from './azlyrics';
-import { fetchLetras } from './letras';
-import { fetchMusixmatch } from './musixmatch';
 import { LyricsProviderResult } from './types';
 
 export type ProviderFn = (song: Song, timeoutMs: number) => Promise<LyricsProviderResult>;
 
-const PROVIDERS: ProviderFn[] = [
-  fetchGenius,
-  fetchLrcLib,
-  fetchAzLyrics,
-  fetchLetras,
-  fetchMusixmatch,
-];
+const PROVIDERS: ProviderFn[] = [fetchGenius, fetchLrcLib];
 
-const DEFAULT_TIMEOUTS = [4000, 4000, 3500, 3500, 3500];
+const DEFAULT_TIMEOUTS = [4000, 4000];
 
 export const PROVIDER_COUNT = PROVIDERS.length;
 

@@ -18,13 +18,7 @@ import { FloatingLyricsWindow, FeedbackState } from './components/FloatingLyrics
 import { BackgroundDesktop } from './components/BackgroundDesktop';
 import { APP_VERSION } from './appVersion';
 
-const PROVIDER_ORDER: LyricsData['provider'][] = [
-  'Genius',
-  'LRCLIB',
-  'azlyrics',
-  'letras.mus.br',
-  'musixmatch',
-];
+const PROVIDER_ORDER: LyricsData['provider'][] = ['Genius', 'LRCLIB'];
 
 function providerIndexFor(label: LyricsData['provider']): number {
   const idx = PROVIDER_ORDER.indexOf(label);

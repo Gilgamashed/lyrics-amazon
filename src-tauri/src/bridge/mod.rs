@@ -2,13 +2,13 @@ mod now_playing;
 mod source;
 
 use std::io;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
 
 use axum::{
     Json, Router,
-    body::Body,
+    body::{Body, Bytes},
     extract::{
-        State,
+        Query, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
     http::{HeaderValue, Method, Request, StatusCode, header},
@@ -55,6 +55,7 @@ pub fn build_router(state: Arc<BridgeState>) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/now-playing", get(now_playing))
+        .route("/fetch", get(fetch_proxy))
         .route("/ws", get(ws_upgrade))
         .layer(middleware::from_fn(cors_layer))
         .with_state(state)
@@ -161,6 +162,90 @@ async fn health() -> &'static str {
 
 async fn now_playing(State(state): State<Arc<BridgeState>>) -> Json<NowPlaying> {
     Json(state.current.read().unwrap().clone())
+}
+
+/// A desktop browser User-Agent; some lyrics hosts reject the default reqwest UA.
+const BROWSER_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
+     (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+
+fn http_client() -> &'static reqwest::Client {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .user_agent(BROWSER_UA)
+            .build()
+            .expect("failed to build the bridge HTTP client")
+    })
+}
+
+/// Restricts the proxy to the lyrics sources we actually consume (plus loopback,
+/// which keeps the endpoint testable). Everything else is refused as SSRF guard.
+fn is_allowed_host(host: &str) -> bool {
+    let host = host.to_ascii_lowercase();
+    host == "genius.com"
+        || host.ends_with(".genius.com")
+        || host == "lrclib.net"
+        || host.ends_with(".lrclib.net")
+        || host == "127.0.0.1"
+        || host == "localhost"
+}
+
+#[derive(serde::Deserialize)]
+struct FetchParams {
+    url: String,
+}
+
+/// Server-side GET proxy that lets the webview/browser read cross-origin lyrics
+/// sources whose responses lack permissive CORS headers. The caller's localhost
+/// or Tauri origin is reflected by `cors_layer`, so the response is readable.
+async fn fetch_proxy(Query(params): Query<FetchParams>) -> Response {
+    let target = match reqwest::Url::parse(&params.url) {
+        Ok(url) => url,
+        Err(_) => return (StatusCode::BAD_REQUEST, "invalid url").into_response(),
+    };
+    if !matches!(target.scheme(), "http" | "https") {
+        return (StatusCode::BAD_REQUEST, "unsupported scheme").into_response();
+    }
+    match target.host_str() {
+        Some(host) if is_allowed_host(host) => {}
+        _ => return (StatusCode::FORBIDDEN, "host not allowed").into_response(),
+    }
+
+    match http_client().get(target).send().await {
+        Ok(upstream) => {
+            let status = upstream.status();
+            let content_type = upstream
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .map(ToOwned::to_owned);
+            match upstream.bytes().await {
+                Ok(bytes) => build_proxy_response(status, content_type, bytes),
+                Err(error) => {
+                    log::warn!("[bridge] fetch body error: {error}");
+                    StatusCode::BAD_GATEWAY.into_response()
+                }
+            }
+        }
+        Err(error) => {
+            log::warn!("[bridge] fetch failed: {error}");
+            StatusCode::BAD_GATEWAY.into_response()
+        }
+    }
+}
+
+fn build_proxy_response(
+    status: reqwest::StatusCode,
+    content_type: Option<String>,
+    bytes: Bytes,
+) -> Response {
+    let mut builder = Response::builder().status(status);
+    if let Some(content_type) = content_type {
+        builder = builder.header(header::CONTENT_TYPE, content_type);
+    }
+    builder
+        .body(Body::from(bytes))
+        .unwrap_or_else(|_| StatusCode::BAD_GATEWAY.into_response())
 }
 
 async fn ws_upgrade(
@@ -509,5 +594,80 @@ mod tests {
         let blocker = TcpListener::bind("127.0.0.1:0").await.unwrap();
         assert!(bind_bridge_at(blocker.local_addr().unwrap()).await.is_err());
         drop(blocker);
+    }
+
+    fn percent_encode(value: &str) -> String {
+        value
+            .chars()
+            .map(|c| match c {
+                'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '_' | '.' | '~' => c.to_string(),
+                _ => format!("%{:02X}", c as u32),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn is_allowed_host_accepts_lyrics_sources_and_loopback_only() {
+        for host in [
+            "genius.com",
+            "api.genius.com",
+            "lrclib.net",
+            "www.lrclib.net",
+            "127.0.0.1",
+            "localhost",
+        ] {
+            assert!(is_allowed_host(host), "expected {host} to be allowed");
+        }
+        for host in [
+            "evil.example",
+            "genius.com.evil.example",
+            "notgenius.com",
+            "example.org",
+        ] {
+            assert!(!is_allowed_host(host), "expected {host} to be rejected");
+        }
+    }
+
+    #[tokio::test]
+    async fn fetch_rejects_invalid_url_scheme_and_disallowed_host() {
+        let router = build_router(idle_state());
+
+        let invalid = get(&router, "/fetch?url=not-a-url", None).await;
+        assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+
+        let bad_scheme = get(&router, "/fetch?url=file%3A%2F%2F%2Fetc%2Fpasswd", None).await;
+        assert_eq!(bad_scheme.status(), StatusCode::BAD_REQUEST);
+
+        let foreign = get(&router, "/fetch?url=https%3A%2F%2Fevil.example%2F", None).await;
+        assert_eq!(foreign.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn fetch_proxies_allowed_upstream_body_and_content_type() {
+        // A local upstream that deliberately sends no CORS headers.
+        let upstream =
+            Router::new().route("/lyrics", axum::routing::get(|| async { "hello lyrics" }));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = tokio::spawn(async move { serve(listener, upstream).await });
+
+        let router = build_router(idle_state());
+        let uri = format!(
+            "/fetch?url={}",
+            percent_encode(&format!("http://{addr}/lyrics"))
+        );
+        let response = get(&router, &uri, Some("http://localhost:4173")).await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let content_type = response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+            .to_string();
+        assert!(content_type.starts_with("text/plain"), "got {content_type}");
+        assert_eq!(body_text(response).await, "hello lyrics");
+
+        handle.abort();
     }
 }

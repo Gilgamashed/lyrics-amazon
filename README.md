@@ -2,13 +2,13 @@
 
 A standalone, desktop-style companion that retrieves synchronized lyrics and Genius annotations for songs currently playing on **Amazon Music** and displays them in a floating, translucent, draggable, and resizable glass window.
 
-- **Lyrics providers:** an ordered chain — **Genius → LRCLIB (synchronized LRC) → azlyrics → letras.mus.br → musixmatch** — over a curated local database and an optional AI fallback. A genuine **"Lyrics not found"** state is shown only when the whole chain comes up empty.
+- **Lyrics providers:** an ordered chain — **Genius → LRCLIB (synchronized LRC)** — over a curated local database and an optional AI fallback. A genuine **"Lyrics not found"** state is shown only when the whole chain comes up empty.
 - **Playback sync:** click-to-seek, auto-scroll, and `±0.5s` / `±0.1s` offset calibration.
 - **Dual display modes:** Synchronized Karaoke (synced results) and Full Lyrics Sheet (plain-only results).
 - **Per-song feedback:** thumbs up persists the accepted lyrics locally; thumbs down advances to the next provider.
 - **Window experience:** opacity/blur sliders, pin-to-top, minimize-to-pill, resize handles, and window presets.
 
-> Status: Phase 8 (Hardening & Release) — **MVP complete**; post-MVP packaging (`specs/09_SPEC_POSTMVP-APP-PACK.md`) and the lyrics/UX minor patch (`specs/10_SPEC_POSTMVP-MIN-PATCH.md`) are implemented on `dev`. See `specs/PROJECT_OVERVIEW.MD` for the roadmap and `specs/00_AI-SAFE.md` for the SpecDD scope rules.
+> Status: Phase 8 (Hardening & Release) — **MVP complete**; post-MVP packaging (`specs/09_SPEC_POSTMVP-APP-PACK.md`), the lyrics/UX minor patch (`specs/10_SPEC_POSTMVP-MIN-PATCH.md`), and the critical lyrics-pipeline fix (`specs/11_SPEC_POSTMVP-LYRICS-PIPELINE-FIX.md`, **v0.4.0**) are implemented on `dev`. See `specs/PROJECT_OVERVIEW.MD` for the roadmap and `specs/00_AI-SAFE.md` for the SpecDD scope rules.
 
 ## Prerequisites
 
@@ -73,10 +73,10 @@ This starts the Vite dev server, compiles the Rust core, opens the desktop windo
 | `npm run tauri:dev` | Run the Tauri desktop shell + native bridge in dev mode. |
 | `npm run tauri:build` | Build the Tauri desktop app. |
 | `npm run bridge:smoke` | Hit the running bridge over HTTP + WebSocket. |
-| `npm run test` | Run the Vitest unit/component suites (172 tests). |
+| `npm run test` | Run the Vitest unit/component suites (177 tests). |
 | `npm run test:coverage` | Run Vitest with the v8 coverage provider. |
 | `npm run coverage:report` | Combined FE + Rust coverage aggregation (gate: ≥ 85% lines). |
-| `npm run test:e2e` | Build UI + bridge, run the Playwright E2E suite (8 tests). |
+| `npm run test:e2e` | Build UI + bridge, run the Playwright E2E suite (10 tests). |
 
 ## Project Structure
 
@@ -84,7 +84,7 @@ This starts the Vite dev server, compiles the Rust core, opens the desktop windo
 src/
   types/       Domain types (Song, LyricLine, LyricsData, WindowState, ...)
   services/    Lyric engine (provider chain retrieval, LRC parsing, curated tracks, feedback/bridge clients)
-  services/providers/  Ordered lyrics sources (Genius, LRCLIB, azlyrics, letras.mus.br, musixmatch)
+  services/providers/  Ordered lyrics sources (Genius, LRCLIB)
   components/  UI (FloatingLyricsWindow, KaraokeLyricsView, FullSheetLyricsView, ...)
 src-tauri/
   src/bridge/  Rust-native companion bridge (axum HTTP + WebSocket, per-OS now-playing adapters)
@@ -102,7 +102,7 @@ specs/
 
 1. **User-accepted** — a result previously saved with thumbs up (`src/services/userLyricsStore.ts`, `localStorage`, `title|artist` key).
 2. **Curated** local database.
-3. **Provider chain** — **Genius → LRCLIB → azlyrics → letras.mus.br → musixmatch** (`src/services/providers/*`). Each provider self-times-out via `AbortController` and degrades to the next on error/block/miss, so playback is never blocked. Genius uses the **public search endpoint** (`/api/search/song?q=…`) to match a song, then retrieves its lyrics; the other sources use their public pages.
+3. **Provider chain** — **Genius → LRCLIB** (`src/services/providers/*`). Each provider self-times-out via `AbortController` and degrades to the next on error/block/miss, so playback is never blocked. Genius uses the **public search endpoint** (`/api/search/song?q=…`) to match a song, then retrieves its lyrics; LRCLIB provides synchronized LRC. All provider network I/O goes through a single egress layer (`src/services/httpClient.ts`) that fetches **direct-first** and **falls back to the local bridge `/fetch` proxy** when the production webview's CORS policy blocks the upstream.
 4. **Saved AI** results (`provider: "AI Sync"`).
 5. **Live AI fallback** (see below).
 
@@ -168,7 +168,7 @@ npm run tauri:build
 
 ### Branching & Staging
 
-- **`dev`** — integration branch; every change lands here first and is validated by CI. Currently carries version **0.3.0**.
+- **`dev`** — integration branch; every change lands here first and is validated by CI. Currently carries version **0.4.0**.
 - **`staging`** — long-lived release-candidate branch where the in-progress version is staged (cut from `dev`, advanced by merging `dev` → `staging`). CI runs on its pushes too.
 - **`vX.Y.Z` tags** — cut from `staging` for a stable release; the tag workflow publishes a normal GitHub Release and the in-app updater offers it.
 - **`vX.Y.Z-rc.N` tags** — pre-releases for manual testing only. Any tag containing `-` publishes as a GitHub **pre-release** (e.g. `v0.3.0-rc.1`); the updater only reads `releases/latest`, so pre-releases are never offered automatically.
@@ -211,15 +211,17 @@ Exercise the live provider chain with and without cache:
 npm run smoke
 ```
 
-Uses a track that is **not** in the curated database (e.g., *Yesterday — The Beatles*) to force real network requests through the chain, then measures cold fetch vs warm cache-hit latency.
+Uses a track that is **not** in the curated database (e.g., *Yesterday — The Beatles*) to force real network requests through the chain, then measures cold fetch vs warm cache-hit latency. It also runs a **live Genius parser check** (search + page extraction) and fails when no real lyrics come back.
 
-Result of a live run (2026-10-13):
+Result of a live run (2026-10-15):
 
 | Pass | `useCache` | Latency | Provider | Lines |
 | :--- | :--- | ---: | :--- | ---: |
-| Cold (forced network) | `false` | 1728 ms | LRCLIB | 20 |
-| Warm (cache miss) | `true` | 814 ms | LRCLIB | 20 |
+| Cold (forced network) | `false` | 5579 ms | Genius | 32 |
+| Warm (cache miss) | `true` | 937 ms | LRCLIB | 20 |
 | Warm (cache hit) | `true` | 0 ms | LRCLIB | 20 |
+
+Live Genius parser check (Yesterday — The Beatles): **PASS** — `provider: Genius`, 32 lines.
 
 The cache-hit pass avoids the network round-trip entirely (0 ms), confirming `fetchLyrics` returns cached `LyricsData` for repeat plays.
 

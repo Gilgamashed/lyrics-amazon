@@ -41,9 +41,6 @@ export interface LyricsData {
   provider:
     | 'Genius'
     | 'LRCLIB'
-    | 'azlyrics'
-    | 'letras.mus.br'
-    | 'musixmatch'
     | 'AI Sync'
     | 'Amazon Music'
     | 'None';

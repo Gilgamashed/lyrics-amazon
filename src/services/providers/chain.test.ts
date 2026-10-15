@@ -61,7 +61,7 @@ describe('runProviderChain', () => {
     const providers: ProviderFn[] = [
       async () => notFound('Genius'),
       async () => plain('LRCLIB'),
-      async () => plain('azlyrics'),
+      async () => plain('None'),
     ];
     const result = await runProviderChain(SONG, 0, providers);
     expect(result.result?.provider).toBe('LRCLIB');
@@ -83,7 +83,7 @@ describe('runProviderChain', () => {
     const providers: ProviderFn[] = [
       async () => notFound('Genius'),
       rejecting('LRCLIB'),
-      async () => notFound('azlyrics'),
+      async () => notFound('None'),
     ];
     const result = await runProviderChain(SONG, 0, providers);
     expect(result.result).toBeNull();
@@ -94,10 +94,10 @@ describe('runProviderChain', () => {
     const providers: ProviderFn[] = [
       async () => synced('Genius'),
       async () => synced('LRCLIB'),
-      async () => synced('azlyrics'),
+      async () => synced('None'),
     ];
     const result = await runProviderChain(SONG, 2, providers);
-    expect(result.result?.provider).toBe('azlyrics');
+    expect(result.result?.provider).toBe('None');
     expect(result.usedIndex).toBe(2);
   });
 
