@@ -76,7 +76,7 @@ describe('KaraokeLyricsView', () => {
 
   it('opens an annotation without also seeking', () => {
     const { onSelectAnnotation, onSeek } = renderView();
-    fireEvent.click(screen.getByTitle('View Genius verified annotation'));
+    fireEvent.click(screen.getByTitle('View verified info annotation'));
     expect(onSelectAnnotation).toHaveBeenCalledWith('ann-2');
     expect(onSeek).not.toHaveBeenCalled();
   });

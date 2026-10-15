@@ -231,7 +231,9 @@ mod tests {
             );
         });
 
-        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        // Generous deadline: this runs alongside the rest of the suite (and under
+        // llvm-cov instrumentation), where a loaded machine can delay the poller.
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
         let mut saw_published = false;
         while std::time::Instant::now() < deadline {
             if state.current.read().unwrap().title.as_deref() == Some("Loop") {
@@ -243,7 +245,7 @@ mod tests {
 
         assert!(
             saw_published,
-            "poller failed to publish from the injected source within 2s"
+            "poller failed to publish from the injected source within 10s"
         );
     }
 

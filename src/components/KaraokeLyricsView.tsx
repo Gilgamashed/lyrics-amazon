@@ -149,7 +149,7 @@ export const KaraokeLyricsView: React.FC<KaraokeLyricsViewProps> = ({
               </p>
             </div>
 
-            {/* Genius Annotation Flag / Button */}
+            {/* Info Annotation Flag / Button */}
             {hasAnnotation && (
               <button
                 onClick={(e) => {
@@ -163,10 +163,10 @@ export const KaraokeLyricsView: React.FC<KaraokeLyricsViewProps> = ({
                     ? 'bg-amber-400 text-slate-950 shadow-sm shadow-amber-400/30 animate-bounce'
                     : 'bg-amber-400/20 text-amber-300 hover:bg-amber-400 hover:text-slate-950 border border-amber-400/30'
                 }`}
-                title="View Genius verified annotation"
+                title="View verified info annotation"
               >
                 <MessageSquare className="w-3 h-3 fill-current" />
-                <span className="hidden sm:inline">Genius</span>
+                <span className="hidden sm:inline">Info</span>
               </button>
             )}
           </div>

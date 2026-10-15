@@ -101,6 +101,52 @@ describe('fetchGenius', () => {
     expect(result.plainLyrics).toBeUndefined();
   });
 
+  it('reads hits directly from response.hits[]', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          response: {
+            hits: [
+              {
+                result: {
+                  title: 'Yesterday',
+                  primary_artist: { name: 'The Beatles' },
+                  path: '/The-beatles-yesterday-lyrics',
+                },
+              },
+            ],
+          },
+        })
+      )
+      .mockResolvedValueOnce(textResponse(geniusPageHtml));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await fetchGenius(SONG);
+    expect(result.plainLyrics).toContain('all my troubles');
+  });
+
+  it('returns empty when the search response carries no hits at all', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ response: {} })));
+    const result = await fetchGenius(SONG);
+    expect(result.plainLyrics).toBeUndefined();
+  });
+
+  it('returns empty when the best hit has no page path', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          response: {
+            hits: [{ result: { title: 'Yesterday', primary_artist: { name: 'The Beatles' } } }],
+          },
+        })
+      )
+    );
+    const result = await fetchGenius(SONG);
+    expect(result.plainLyrics).toBeUndefined();
+  });
+
   it('returns empty on network failure', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
     const result = await fetchGenius(SONG);
@@ -178,5 +224,47 @@ describe('fetchLrcLib', () => {
     const result = await fetchLrcLib(SONG);
     expect(result.hasSync).toBe(false);
     expect(result.plainLyrics).toBeUndefined();
+  });
+
+  it('ignores a /api/get payload that carries no lyrics and falls through', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({}))
+      .mockResolvedValueOnce(jsonResponse({}, false, 404));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await fetchLrcLib(SONG);
+    expect(result.hasSync).toBe(false);
+    expect(result.plainLyrics).toBeUndefined();
+  });
+
+  it('picks a search result by normalized name when no duration matches', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({}, false, 404))
+      .mockResolvedValueOnce(
+        jsonResponse([
+          { id: 1, duration: 400, trackName: 'Yesterday', artistName: 'The Beatles', syncedLyrics: '[00:01.00] Named track' },
+        ])
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await fetchLrcLib(SONG);
+    expect(result.syncedLyrics?.[0].text).toBe('Named track');
+  });
+
+  it('falls back to the first synced search result when the name does not match', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({}, false, 404))
+      .mockResolvedValueOnce(
+        jsonResponse([
+          { id: 1, duration: 400, trackName: 'Other', artistName: 'Someone', syncedLyrics: '[00:02.00] Fallback synced' },
+        ])
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await fetchLrcLib(SONG);
+    expect(result.syncedLyrics?.[0].text).toBe('Fallback synced');
   });
 });

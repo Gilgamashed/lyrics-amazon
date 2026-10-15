@@ -1,10 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AIConfig, LyricLine, LyricsData } from '../types/lyrics';
-import { CURATED_TRACKS } from './curatedTracks';
 import { clearLyricsCache } from './lyricsCache';
 import { getSavedAILyrics } from './aiLyricsStore';
 import { saveAcceptedLyrics } from './userLyricsStore';
-import { fetchLyrics, parseLrc, searchTracks } from './lyricsService';
+import { fetchLyrics, parseLrc } from './lyricsService';
 import { synthesizeLyrics } from './aiService';
 
 vi.mock('./aiService', { spy: true });
@@ -114,108 +113,6 @@ describe('parseLrc', () => {
   });
 });
 
-describe('searchTracks', () => {
-  const fetchMock = vi.fn();
-
-  beforeEach(() => {
-    fetchMock.mockReset();
-    vi.stubGlobal('fetch', fetchMock);
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.useRealTimers();
-  });
-
-  it('returns the curated list without fetching for an empty query', async () => {
-    const result = await searchTracks('   ');
-    expect(result).toBe(CURATED_TRACKS);
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it('merges remote LRCLIB results with local matches and dedupes', async () => {
-    const local = CURATED_TRACKS[0];
-    fetchMock.mockResolvedValue(
-      jsonOk([
-        {
-          id: 123,
-          trackName: 'Complete Remote Track',
-          artistName: 'Remote Artist',
-          albumName: 'Remote Album',
-          duration: 222,
-        },
-        {
-          id: 456,
-          trackName: local.title,
-          artistName: local.artist,
-          albumName: 'Extra',
-          duration: 130,
-        },
-      ])
-    );
-
-    const result = await searchTracks(local.title);
-
-    const remote = result.filter((t) => t.id === 'lrc-123');
-    expect(remote).toHaveLength(1);
-    expect(remote[0].title).toBe('Complete Remote Track');
-    expect(remote[0].artist).toBe('Remote Artist');
-    expect(remote[0].album).toBe('Remote Album');
-    expect(remote[0].durationMs).toBe(222_000);
-    expect(remote[0].amazonMusicUrl).toContain('Complete%20Remote%20Track');
-    // The remote item matching title+artist of a local track was deduped.
-    expect(result.some((t) => t.id === 'lrc-456')).toBe(false);
-    // Local matches still present.
-    expect(result.some((t) => t.id === local.id)).toBe(true);
-
-    const called = fetchMock.mock.calls[0][0] as string;
-    expect(called).toContain(`q=${encodeURIComponent(local.title)}`);
-  });
-
-  it('caps remote results to eight', async () => {
-    const remote = Array.from({ length: 12 }, (_, i) => ({
-      id: i,
-      trackName: `Remote ${i}`,
-      artistName: 'A',
-      albumName: 'B',
-      duration: 100,
-    }));
-    fetchMock.mockResolvedValue(jsonOk(remote));
-
-    const result = await searchTracks('zzz-no-local-match');
-    expect(result.filter((t) => t.id.startsWith('lrc-'))).toHaveLength(8);
-  });
-
-  it('falls back to a custom track on a failed lookup', async () => {
-    fetchMock.mockRejectedValue(new TypeError('offline'));
-    const result = await searchTracks('Lindsey Sterling - Crystallize');
-    expect(result).toHaveLength(1);
-    expect(result[0].title).toBe('Lindsey Sterling');
-    expect(result[0].artist).toBe('Crystallize');
-    expect(result[0].id.startsWith('custom-')).toBe(true);
-  });
-
-  it('falls back when the remote shape is wrong or non-2xx', async () => {
-    fetchMock.mockResolvedValue(jsonOk({ not: 'an array' }));
-    const result = await searchTracks('something unique');
-    expect(result).toHaveLength(1);
-
-    fetchMock.mockResolvedValue({ ok: false, status: 500 } as Response);
-    const result2 = await searchTracks('something unique');
-    expect(result2).toHaveLength(1);
-  });
-
-  it('aborts the remote request after the timeout and falls back', async () => {
-    vi.useFakeTimers();
-    fetchMock.mockImplementation(abortableFetch());
-
-    const pending = searchTracks('never resolves');
-    await vi.advanceTimersByTimeAsync(3600);
-    const result = await pending;
-    expect(result).toHaveLength(1);
-  });
-});
-
 describe('fetchLyrics', () => {
   const fetchMock = vi.fn();
 
@@ -230,15 +127,6 @@ describe('fetchLyrics', () => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
     vi.restoreAllMocks();
-  });
-
-  it('returns curated data without any network call', async () => {
-    const song = { ...SONG, id: 'espresso-sabrina-carpenter', title: 'Espresso', artist: 'Sabrina Carpenter' };
-    const result = await fetchLyrics(song);
-    expect(result).not.toBeNull();
-    expect(result?.provider).toBe('Genius');
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(result?.syncedLyrics.length).toBeGreaterThan(20);
   });
 
   it('parses synced LRCLIB responses with generated annotations', async () => {

@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -12,9 +12,11 @@ const UPSTREAM_BODY = 'bridge-proxied-lyrics-body';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const EXE = join(ROOT, 'src-tauri', 'target', 'debug', 'amazon-music-floating-lyrics-bridge.exe');
+const SCRIPT = join(ROOT, 'e2e', 'fixtures', 'bridge-mock-script.json');
 const PID_FILE = join(ROOT, 'test-results', 'bridge.pid');
+const WEBVIEW_DIR = join(ROOT, 'test-results', 'webview-egress');
 
-let server: Server;
+let server: Server | undefined;
 let upstreamUrl: string;
 let respawned: ChildProcess | null = null;
 
@@ -29,10 +31,22 @@ async function isHealthy(): Promise<boolean> {
 /**
  * The "Graceful degradation" suite in bridge.spec.ts deliberately kills the
  * bridge. Bring it back so these egress checks do not depend on file ordering.
+ * The respawn uses an isolated WebView2 profile folder: the Tauri binary still
+ * creates a (headless) webview, and the just-killed process's default profile
+ * folder stays locked for a few seconds ("resource in use" panic 101).
  */
 async function ensureBridge(): Promise<void> {
   if (await isHealthy()) return;
-  const child = spawn(EXE, [], { stdio: 'ignore' });
+  mkdirSync(WEBVIEW_DIR, { recursive: true });
+  const child = spawn(EXE, [], {
+    env: {
+      ...process.env,
+      BRIDGE_MOCK_SCRIPT: SCRIPT,
+      RUST_LOG: 'info',
+      WEBVIEW2_USER_DATA_FOLDER: WEBVIEW_DIR,
+    },
+    stdio: 'ignore',
+  });
   respawned = child;
   const started = Date.now();
   for (;;) {
@@ -40,8 +54,8 @@ async function ensureBridge(): Promise<void> {
       if (child.pid) writeFileSync(PID_FILE, String(child.pid));
       return;
     }
-    if (Date.now() - started > 20_000) {
-      throw new Error('bridge did not become healthy within 20s after respawn');
+    if (Date.now() - started > 30_000) {
+      throw new Error('bridge did not become healthy within 30s after respawn');
     }
     await new Promise((r) => setTimeout(r, 300));
   }
@@ -49,19 +63,22 @@ async function ensureBridge(): Promise<void> {
 
 test.beforeAll(async () => {
   await ensureBridge();
-  server = createServer((_req, res) => {
+  const upstream = createServer((_req, res) => {
     res.statusCode = 200;
     res.setHeader('Content-Type', 'text/plain');
     // Deliberately NO Access-Control-Allow-Origin, like genius.com in a browser.
     res.end(UPSTREAM_BODY);
   });
-  await new Promise<void>((resolvePromise) => server.listen(0, '127.0.0.1', resolvePromise));
-  const { port } = server.address() as AddressInfo;
+  await new Promise<void>((resolvePromise) => upstream.listen(0, '127.0.0.1', resolvePromise));
+  server = upstream;
+  const { port } = upstream.address() as AddressInfo;
   upstreamUrl = `http://127.0.0.1:${port}/lyrics`;
 });
 
 test.afterAll(async () => {
-  await new Promise<void>((resolvePromise) => server.close(() => resolvePromise()));
+  if (server) {
+    await new Promise<void>((resolvePromise) => server!.close(() => resolvePromise()));
+  }
   if (respawned?.pid) {
     spawnSync('taskkill', ['/pid', String(respawned.pid), '/T', '/F'], { stdio: 'ignore' });
   }

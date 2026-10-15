@@ -23,6 +23,8 @@ Testers reported that the UX is "mostly useless stuff for our purposes" and aske
 - The **currently playing song to be clearly visible at the top** (with the **currently-playing album art**).
 - **Remove the search bar** (the app is auto-detect only).
 - **Remove the playback buttons and scrubber** (the app does not play audio).
+    obs: The scrubber adjusts the position of the song but it is troublesome. It has a 3 minute limit and loops the karaoke when it reaches the limit. Also, it doesn't reset when a new song starts playing. Better to simply remove it and let users click on the lyric line in karaoke mode if they want to change position (or find a way to control amazon music via the playback buttons.)
+- **Get the correct playback position of the song in amazon music and synchronize karaoke mode with it.**
 - **Remove the "Amazon Music Trending" bar and the pre-loaded (curated) lyrics.**
 - **Remove the mock Amazon Music bar's Home / Podcasts / Library navigation.**
 - **Stop floating** the lyrics window; **place it inside the main window.**
@@ -130,18 +132,18 @@ Testers reported that the UX is "mostly useless stuff for our purposes" and aske
 
 ## 4. Definition of Done
 
-- [ ] The **currently playing song and album art** are prominently visible at the top of the app.
-- [ ] The **search bar**, **playback controls/scrubber**, **"Amazon Music Trending" row**, **pre-loaded curated lyrics**, and **mock Home/Podcasts/Library nav** are removed.
-- [ ] The lyrics window is **docked in the main layout** (not floating/draggable) and occupies the former **"Live Stream Playback Status"** region.
-- [ ] **Sync calibration** controls render **with the lyrics**, with unchanged offset semantics.
-- [ ] The **"Genius"** control is renamed **"Info"** and shows **artist/song/album** info when the provider supplies it, with a graceful empty state (no fabricated content).
-- [ ] A single **Options menu** owns all customization (presets, backdrop, appearance, default sync); the scattered in-window settings and backdrop pill are gone; **AI Options is hidden/deferred**.
-- [ ] A **Most Listened** view offers **Hot (5 days) / Month / Lifetime** tabs and counts a play **only after ≥ 30 seconds**; history persists across restarts and can be reset; songs can be re-selected from it.
-- [ ] The test suite is **reorganized** for the new layout and removed surfaces; **coverage ≥ 85% global** and **100% of the named critical utilities**.
-- [ ] Pending **technical deficiencies/improvements are filed as GitHub issues** and linked from `specs/PROMPTS.md`.
-- [ ] All existing quality gates pass (lint, build, Vitest, coverage ≥ 85%, fmt, clippy, Rust tests, E2E, `smoke`, `bridge:smoke`).
-- [ ] No secrets are committed; the README and `specs/PROJECT_OVERVIEW.MD` stay consistent.
-- [ ] No version bump, tag, or release was produced; no §5 deferred items were introduced.
+- [x] The **currently playing song and album art** are prominently visible at the top of the app.
+- [x] The **search bar**, **playback controls/scrubber**, **"Amazon Music Trending" row**, **pre-loaded curated lyrics**, and **mock Home/Podcasts/Library nav** are removed.
+- [x] The lyrics window is **docked in the main layout** (not floating/draggable) and occupies the former **"Live Stream Playback Status"** region.
+- [x] **Sync calibration** controls render **with the lyrics**, with unchanged offset semantics.
+- [x] The **"Genius"** control is renamed **"Info"** and shows **artist/song/album** info when the provider supplies it, with a graceful empty state (no fabricated content).
+- [x] A single **Options menu** owns all customization (presets, backdrop, appearance, default sync); the scattered in-window settings and backdrop pill are gone; **AI Options is hidden/deferred**.
+- [x] A **Most Listened** view offers **Hot (5 days) / Month / Lifetime** tabs and counts a play **only after ≥ 30 seconds**; history persists across restarts and can be reset; songs can be re-selected from it.
+- [x] The test suite is **reorganized** for the new layout and removed surfaces; **coverage ≥ 85% global** and **100% of the named critical utilities** (latest: **93.23%** combined, all critical files 100%).
+- [x] Pending **technical deficiencies/improvements are filed as GitHub issues** ([#1–#16](https://github.com/Gilgamashed/lyrics-amazon/issues)) and linked from `specs/PROMPTS.md`.
+- [x] All existing quality gates pass (lint, build, 185 Vitest, coverage ≥ 85%, fmt, clippy, 41 Rust tests, 10 E2E, `smoke`, `bridge:smoke`, `tauri build --no-bundle`).
+- [x] No secrets are committed; the README and `specs/PROJECT_OVERVIEW.MD` stay consistent.
+- [x] No version bump, tag, or release was produced; no §5 deferred items were introduced.
 
 ## 5. Deferred / TODO
 

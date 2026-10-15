@@ -24,6 +24,21 @@ const RUST_ROOT = join(ROOT, 'src-tauri');
 const FE_SUMMARY = join(ROOT, 'coverage', 'coverage-summary.json');
 const GATE_PCT = 85;
 
+/**
+ * Files where a regression is especially costly (the lyrics retrieval core and
+ * the play-history scorer), held to a strict 100% line-coverage gate.
+ */
+const CRITICAL_FILES = [
+  'src/services/lrcParser.ts',
+  'src/services/httpClient.ts',
+  'src/services/providers/chain.ts',
+  'src/services/providers/base.ts',
+  'src/services/providers/genius.ts',
+  'src/services/providers/lrclib.ts',
+  'src/services/lyricsService.ts',
+  'src/services/playHistoryStore.ts',
+];
+
 const RUST_EXCLUDES = [/[/\\]src-tauri[/\\]src[/\\]main\.rs$/, /[/\\]src-tauri[/\\]build\.rs$/, /[/\\]src-tauri[/\\]gen[/\\]/];
 
 interface LineCount {
@@ -161,7 +176,30 @@ function main(): void {
     console.error(`[coverage-report] FAIL — combined coverage below ${GATE_PCT}%.`);
     process.exit(1);
   }
-  console.log('[coverage-report] PASS — combined line coverage meets the 85% gate.');
+
+  console.log('');
+  console.log('Critical-file gate (100% lines):');
+  let criticalOk = true;
+  for (const rel of CRITICAL_FILES) {
+    const entry = Object.entries(fe.files).find(([file]) =>
+      file.replace(/\\/g, '/').endsWith(rel)
+    );
+    if (!entry) {
+      console.error(`  MISSING ${rel} — not present in the coverage report.`);
+      criticalOk = false;
+      continue;
+    }
+    const lc = entry[1];
+    const ok = lc.total > 0 && lc.covered === lc.total;
+    console.log(`  ${ok ? 'PASS' : 'FAIL'} ${rel} (${lc.covered}/${lc.total} lines)`);
+    if (!ok) criticalOk = false;
+  }
+
+  if (!criticalOk) {
+    console.error('[coverage-report] FAIL — a critical file is below 100% line coverage.');
+    process.exit(1);
+  }
+  console.log('[coverage-report] PASS — combined coverage ≥85% and all critical files at 100%.');
 }
 
 main();

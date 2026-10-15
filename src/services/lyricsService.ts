@@ -1,91 +1,11 @@
 import { Song, LyricsData, LyricLine, GeniusAnnotation, AIConfig } from '../types/lyrics';
-import { CURATED_TRACKS, CURATED_LYRICS_DATA } from './curatedTracks';
 import { getCachedLyrics, setCachedLyrics } from './lyricsCache';
 import { resolveAIConfig, isAIConfigured, synthesizeLyrics } from './aiService';
 import { getSavedAILyrics, saveAILyrics } from './aiLyricsStore';
 import { getAcceptedLyrics } from './userLyricsStore';
 import { runProviderChain } from './providers/chain';
-import { httpFetch } from './httpClient';
 
 export { parseLrc } from './lrcParser';
-
-/**
- * Searches for tracks across curated Amazon Music picks and LRCLIB global directory
- */
-export async function searchTracks(query: string): Promise<Song[]> {
-  const cleanQuery = query.trim().toLowerCase();
-  if (!cleanQuery) return CURATED_TRACKS;
-
-  // Local filter
-  const localMatches = CURATED_TRACKS.filter(
-    (t) =>
-      t.title.toLowerCase().includes(cleanQuery) ||
-      t.artist.toLowerCase().includes(cleanQuery) ||
-      t.album.toLowerCase().includes(cleanQuery)
-  );
-
-  try {
-    // Attempt remote search via LRCLIB for live music tracks
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3500);
-
-    const res = await httpFetch(`https://lrclib.net/api/search?q=${encodeURIComponent(query)}`, {
-      signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
-
-    if (res.ok) {
-      const data = await res.json();
-      if (Array.isArray(data) && data.length > 0) {
-        const remoteSongs: Song[] = data.slice(0, 8).map((item: {
-          id: number;
-          trackName?: string;
-          name?: string;
-          artistName?: string;
-          albumName?: string;
-          duration?: number;
-        }) => {
-          const trackTitle = item.trackName || item.name || 'Unknown Track';
-          const artist = item.artistName || 'Unknown Artist';
-          const album = item.albumName || 'Single';
-          return {
-            id: `lrc-${item.id}`,
-            title: trackTitle,
-            artist,
-            album,
-            albumArt: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300&h=300&fit=crop',
-            durationMs: (item.duration || 180) * 1000,
-            amazonMusicUrl: `https://music.amazon.com/search/${encodeURIComponent(trackTitle + ' ' + artist)}`,
-            genre: 'Pop / Streaming',
-          };
-        });
-
-        // Merge, avoiding duplicates
-        const combined = [...localMatches];
-        for (const r of remoteSongs) {
-          if (!combined.some((c) => c.title.toLowerCase() === r.title.toLowerCase() && c.artist.toLowerCase() === r.artist.toLowerCase())) {
-            combined.push(r);
-          }
-        }
-        return combined;
-      }
-    }
-  } catch {
-    // If network fails or timeout, fall back to local matches
-  }
-
-  return localMatches.length > 0 ? localMatches : [
-    {
-      id: `custom-${Date.now()}`,
-      title: query.split('-')[0]?.trim() || query,
-      artist: query.split('-')[1]?.trim() || 'Amazon Music Artist',
-      album: 'Now Playing',
-      albumArt: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=300&h=300&fit=crop',
-      durationMs: 180000,
-      genre: 'Streaming Track',
-    }
-  ];
-}
 
 export interface FetchLyricsOptions {
   useCache?: boolean;
@@ -133,19 +53,6 @@ async function fetchLyricsUncached(
   if (startFromIndex === 0) {
     const accepted = getAcceptedLyrics(song);
     if (accepted) return accepted;
-  }
-
-  // Curated database next for rich verified data (fresh lookups only)
-  if (startFromIndex === 0) {
-    for (const [key, data] of Object.entries(CURATED_LYRICS_DATA)) {
-      if (
-        key === song.id ||
-        (data.title.toLowerCase() === song.title.toLowerCase() &&
-          data.artist.toLowerCase() === song.artist.toLowerCase())
-      ) {
-        return data;
-      }
-    }
   }
 
   // Ordered provider chain before any AI fallback

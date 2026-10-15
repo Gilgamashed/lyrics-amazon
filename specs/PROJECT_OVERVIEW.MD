@@ -26,17 +26,17 @@ The application connects Amazon Music listeners with lyrics and song meanings fr
 1. **Track Detection (Hybrid)**
    - Automatic detection via the browser `navigator.mediaSession` API and audio listener (Amazon Music **web player**).
    - **Native companion bridge** for the **Amazon Music desktop app** (Windows → System Media Transport Controls; macOS → MediaRemote; Linux → MPRIS over D-Bus) exposed to the UI over a localhost WebSocket/HTTP API.
-   - Amazon Music live track quick-input bar and full song/artist search with instant search suggestions.
+    - Auto-detect only (no search bar): previously played songs are re-selected from the local **Most Listened** history.
 
 2. **Multi-Provider Lyric Engine**
-   - An ordered provider chain — **Genius → LRCLIB → azlyrics → letras.mus.br → musixmatch** — over the curated local database.
+   - An ordered provider chain — **Genius → LRCLIB** — with accepted-lyrics persistence and a local **Most Listened** play-history store.
    - **LRCLIB** for millisecond-precision, synchronized (LRC) lyrics; **Genius** for rich text, verified annotations, and track trivia.
    - A genuine **"Lyrics not found"** state when the whole chain comes up empty (no fabricated lyrics), plus **per-song thumbs up/down** feedback that persists accepted results locally or advances to the next provider.
    - **Customizable AI fallback adapter** for tracks still missing timestamped metadata — synchronizes lyrics and generates annotations without vendor lock-in.
 
-3. **Floating Lyrics Window Experience**
-   - A frosted-glass window with custom translucency/opacity slider, background blur control, pinned overlay mode, corner/edge resize handles, minimize-to-floating-pill, and full-screen view.
-   - Instant toggle between **Synchronized Karaoke Mode** (word/line timing highlighting, auto-scroll, click-to-seek, sync-offset fine-tuning) and **Full Lyrics Sheet** (clean editorial layout, verse headers, font sizing, copy tool).
+3. **Docked Lyrics Surface**
+   - A single in-app surface (not a floating/draggable window) with a **now-playing header** (album art + title/artist/album), a unified **Options** menu (layout preset, backdrop, appearance: opacity/blur/font/palette, default sync offset), an **Info** panel (artist/song/album details), and a local **Most Listened** view.
+   - Instant toggle between **Synchronized Karaoke Mode** (line timing highlighting, auto-scroll, sync-offset fine-tuning alongside the lyrics) and **Full Lyrics Sheet** (clean editorial layout, verse headers, font sizing).
 
 ---
 
@@ -47,25 +47,27 @@ The system is organized into 6 logical layers, designed to run standalone (brows
 1. **Clients & Channels of Access**
    - Amazon Music Web Player (in-browser detection).
    - Amazon Music Desktop App (detection via the native companion).
-   - The floating lyrics HUD window itself (draggable, resizable, translatable).
+    - The main window itself, with the lyrics docked as a single in-app surface (not floating/draggable).
 2. **Track Detection & Playback Sync**
    - Browser `navigator.mediaSession` (web player) with play/pause/seek handlers.
    - **Native Companion Bridge**: OS now-playing integration — Windows `GlobalSystemMediaTransportControlsSessionManager` (SMTC), macOS MediaRemote/`nowplaying-cli`, Linux MPRIS D-Bus — publishing track metadata over a localhost endpoint. When multiple sessions exist, it prefers a playing **Amazon Music** session, else the system's current session.
    - Playback timer with `±0.5s` / `±0.1s` sync-offset calibration against the user's exact audio stream.
 3. **Lyric Services (Business Logic)**
-   - `src/services/lyricsService.ts`: unified search (`searchTracks`), retrieval and LRC parsing (`parseLrc`), and the accepted → curated → provider-chain → saved-AI → AI cascade (`fetchLyrics`, returning `LyricsData | null`), with per-provider adapters under `src/services/providers/` and accepted-lyrics persistence in `src/services/userLyricsStore.ts`.
-   - `src/services/curatedTracks.ts`: curated local database of trending/tracked songs for instant offline results.
-   - Domain types in `src/types/lyrics.ts`: `Song`, `LyricLine`, `LyricsData`, `GeniusAnnotation`, `WindowState`, `WindowPreset`.
+    - `src/services/lyricsService.ts`: retrieval and LRC parsing (`parseLrc`), and the accepted → provider-chain → saved-AI → AI cascade (`fetchLyrics`, returning `LyricsData | null`), with per-provider adapters under `src/services/providers/` and accepted-lyrics persistence in `src/services/userLyricsStore.ts`. All provider network I/O flows through `src/services/httpClient.ts` (direct-first, bridge `/fetch` fallback).
+    - `src/services/playHistoryStore.ts`: local, restart-durable Most Listened play-history (counts a play only after ≥ 30s of native playback); `src/services/settingsStore.ts` persists layout/appearance; `src/services/layoutPresets.ts` defines the docked layout widths.
+    - Domain types in `src/types/lyrics.ts`: `Song`, `LyricLine`, `LyricsData`, `GeniusAnnotation`, `AppSettings`, `WindowState`.
 4. **Artificial Intelligence Layer (Pluggable)**
    - A **customizable AI placeholder**: provider-agnostic adapter over an OpenAI-compatible chat/completions endpoint.
    - Configurable via environment variables (`AI_PROVIDER_URL`, `AI_MODEL`, `AI_API_KEY`) and an in-app settings panel; no compile-time dependency on any single vendor.
    - Used to synthesize synchronized lyrics and smart annotations when Genius/LRCLIB coverage is missing. Gemini (`@google/genai`) is an optional adapter, not a requirement.
 5. **UI & Window Experience**
-   - `src/components/AmazonMusicBar.tsx`: currently playing track controls, search with auto-suggestions, audio progress bar, sync calibration.
-   - `src/components/FloatingLyricsWindow.tsx`: draggable/resizable glass window with pointer-based dragging, multi-edge resizing, opacity/blur controls, pin, minimize-to-pill, and presets.
-   - `src/components/KaraokeLyricsView.tsx` and `src/components/FullSheetLyricsView.tsx`: the two display modes.
-   - `src/components/GeniusAnnotationsPanel.tsx`: trivia, behind-the-lyrics facts, and highlighted verse explanations.
-   - `src/components/BackgroundDesktop.tsx`: the mock desktop canvas beneath the translucent glass.
+    - `src/components/NowPlayingHeader.tsx`: the currently playing song with album art, title/artist/album, the detection chip, and the Most Listened toggle + Options menu.
+    - `src/components/LyricsPanel.tsx`: the docked lyrics surface (Karaoke / Full Sheet toggle, sync calibration, thumbs feedback, auto-scroll) occupying the former "Live Stream Playback Status" region.
+    - `src/components/KaraokeLyricsView.tsx` and `src/components/FullSheetLyricsView.tsx`: the two display modes.
+    - `src/components/InfoPanel.tsx`: artist/song/album details, trivia, and annotations from the lyrics provider.
+    - `src/components/MostListenedPanel.tsx`: the Hot / Month / Lifetime usage view.
+    - `src/components/OptionsMenu.tsx`: the single customization surface (layout, backdrop, appearance, default sync, reset history).
+    - `src/components/BackgroundBackdrop.tsx`: decorative backdrops behind the docked surface.
 6. **Quality, Packaging & Delivery**
    - Vite build + TypeScript check (`tsc --noEmit`) for the web applet.
    - Native packaging of the companion bridge (Electron or Tauri shell) for desktop-app detection on Windows, macOS, and Linux.
@@ -78,6 +80,8 @@ The system is organized into 6 logical layers, designed to run standalone (brows
 The project is considered complete when it satisfies the following functional and architectural criteria:
 
 > **Status (Phase 8 close-out):** all criteria below are met and the MVP is delivered as of Phase 8.
+>
+> **Post-MVP note:** the post-MVP UX redesign (`specs/12_SPEC_POSTMVP-UX-REDESIGN.md`) later replaced the **floating window ergonomics** and **search/quick-input** criteria with a **docked lyrics surface** and an **auto-detect-only** flow; those MVP criteria are retained here as the historical Phase-8 record.
 
 - ✅ **Hybrid track detection** — web-player via `navigator.mediaSession`, desktop-app via the native companion bridge, plus search/quick-input.
 - ✅ **Multi-provider lyrics** — LRCLIB synced lyrics, Genius annotations/trivia, and a **provider-agnostic AI fallback** for missing tracks.
@@ -102,7 +106,7 @@ The project is considered complete when it satisfies the following functional an
 | **Phase 7** | **Automated testing & verification**: unit/component tests (frontend + Rust core), bridge HTTP/WS integration tests, and a real frontend↔backend E2E suite, targeting ≥ 85% combined line coverage with documented findings. |
 | **Phase 8** | Hardening & release: typecheck/lint clean, multi-platform validation, docs, and final demo. |
 
-> **Post-MVP track:** the 8-phase MVP above is complete. Work now continues on the post-MVP backlog catalogued in `specs/08_SPEC_HARDENING.md` §5 (code signing/notarization, auto-update, cross-platform installers, and more). The first post-MVP spec is `specs/09_SPEC_POSTMVP-APP-PACK.md` — **App Packaging for Live Testing** (versioned, self-updating Windows build distributed via GitHub Releases); the second is `specs/10_SPEC_POSTMVP-MIN-PATCH.md` — **Lyrics Fallback & UX Minor Patch** (live Genius source + genuine "Lyrics not found", the multi-provider chain before AI, Amazon Music session prioritization on Windows, and per-song thumbs up/down), landed on `dev` with no version bump or release. The third is `specs/11_SPEC_POSTMVP-LYRICS-PIPELINE-FIX.md` — **Critical Lyrics Pipeline Fix** (**v0.4.0**): the CORS-free bridge `/fetch` egress proxy, the Genius `response.sections[].hits[]` + multi-container extraction fix, LRCLIB `/api/search` fallback + `429` handling, and the removal of the azlyrics/letras.mus.br/musixmatch scrapers (chain reduced to **Genius → LRCLIB**). A fourth spec, `specs/12_SPEC_POSTMVP-UX-REDESIGN.md`, is written but not yet implemented.
+> **Post-MVP track:** the 8-phase MVP above is complete. Work now continues on the post-MVP backlog catalogued in `specs/08_SPEC_HARDENING.md` §5 (code signing/notarization, auto-update, cross-platform installers, and more). The first post-MVP spec is `specs/09_SPEC_POSTMVP-APP-PACK.md` — **App Packaging for Live Testing** (versioned, self-updating Windows build distributed via GitHub Releases); the second is `specs/10_SPEC_POSTMVP-MIN-PATCH.md` — **Lyrics Fallback & UX Minor Patch** (live Genius source + genuine "Lyrics not found", the multi-provider chain before AI, Amazon Music session prioritization on Windows, and per-song thumbs up/down), landed on `dev` with no version bump or release. The third is `specs/11_SPEC_POSTMVP-LYRICS-PIPELINE-FIX.md` — **Critical Lyrics Pipeline Fix** (**v0.4.0**): the CORS-free bridge `/fetch` egress proxy, the Genius `response.sections[].hits[]` + multi-container extraction fix, LRCLIB `/api/search` fallback + `429` handling, and the removal of the azlyrics/letras.mus.br/musixmatch scrapers (chain reduced to **Genius → LRCLIB**). The fourth spec, `specs/12_SPEC_POSTMVP-UX-REDESIGN.md` — **Post-MVP UX Redesign** — is implemented on `dev` (no version bump): the search bar, playback controls/scrubber, curated "trending" row, mock Home/Podcasts/Library nav, and floating window are removed; the lyrics are **docked** into the former "Live Stream Playback Status" region; "Genius" is renamed **Info**; all customization is consolidated into **one Options menu** (with AI Options hidden/deferred); a local **Most Listened** view (Hot/Month/Lifetime, ≥ 30s play rule) is added; and the test suite is re-baselined (≥ 85% global + **100% of critical utilities**).
 >
 > **Release flow:** `dev` is the integration branch (now at version **0.4.0**). A long-lived **`staging`** branch carries the in-progress release — it was cut from `dev` and is advanced by merging `dev` → `staging`; CI runs on its pushes. Stable releases are cut from `staging` as `vX.Y.Z` tags; `vX.Y.Z-rc.N` tags publish as GitHub **pre-releases** for manual testing only (the updater reads `releases/latest`, which excludes pre-releases). First staged candidate: **`v0.3.0-rc.1`**.
 

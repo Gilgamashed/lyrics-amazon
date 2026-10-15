@@ -56,30 +56,39 @@ export interface LyricsData {
 export type ViewMode = 'karaoke' | 'sheet';
 export type WindowTheme = 'acrylic' | 'midnight' | 'obsidian' | 'cyan';
 export type FontSize = 'small' | 'medium' | 'large' | 'xlarge';
+export type BackgroundTheme = 'amazon-music' | 'studio' | 'minimal';
+export type LayoutPresetId = 'compact' | 'standard' | 'wide';
 
+/**
+ * Appearance of the docked lyrics surface. The former floating-window geometry
+ * (x/y/width/height/pin/minimize/maximize) was removed in the UX redesign.
+ */
 export interface WindowState {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
   opacity: number;
   blur: number;
-  isPinned: boolean;
-  isMinimized: boolean;
-  isMaximized: boolean;
   viewMode: ViewMode;
   theme: WindowTheme;
   fontSize: FontSize;
   autoScroll: boolean;
-  showAnnotations: boolean;
 }
 
-export interface WindowPreset {
-  id: string;
+/**
+ * Width/density presets for the docked lyrics surface (the floating window's
+ * former "window layout presets", re-purposed after docking).
+ */
+export interface LayoutPreset {
+  id: LayoutPresetId;
   name: string;
   description: string;
   width: number;
-  height: number;
+}
+
+/** Durable, user-configurable application settings (persisted locally). */
+export interface AppSettings {
+  window: WindowState;
+  backgroundTheme: BackgroundTheme;
+  layoutPreset: LayoutPresetId;
+  syncOffsetMs: number;
 }
 
 export interface AIConfig {
@@ -90,6 +99,8 @@ export interface AIConfig {
 }
 
 export type DetectionSource = 'browser' | 'desktop';
+
+export type FeedbackState = 'none' | 'up' | 'down';
 
 export interface NowPlaying {
   source: string;

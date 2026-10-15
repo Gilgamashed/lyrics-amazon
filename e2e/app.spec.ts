@@ -5,51 +5,52 @@ import { test, expect, type Page } from '@playwright/test';
  * 48765 and the production bundle is served from the Playwright webServer.
  *
  * The mock script cycles (in order, 20s each): Espresso → Cruel Summer →
- * City Lights (artist unknown) → loops.
+ * City Lights (artist unknown) → loops. Track selection is driven entirely by
+ * desktop detection now (the search bar and curated catalogue were removed).
  */
 
-const bannerTitle = (page: Page) =>
-  page.getByRole('banner').locator('p').filter({ hasText: /Espresso|Cruel Summer|City Lights/ });
+const header = (page: Page) => page.getByRole('banner');
+const trackTitle = (page: Page) => header(page).locator('h1');
 
 test.describe('Web UI against the native bridge', () => {
-  test('boots into the curated Espresso track with karaoke lyrics', async ({ page }) => {
+  test('boots and detects the Espresso track from the native bridge', async ({ page }) => {
     await page.goto('/');
 
-    await expect(page.getByRole('banner')).toContainText('Amazon Music');
-    await expect(page.getByRole('banner').locator('p', { hasText: 'Espresso' })).toContainText(
-      'Sabrina Carpenter',
-      { timeout: 15_000 }
-    );
-    // A curated Espresso lyric line is rendered in the karaoke window.
-    await expect(page.getByText("That's that me espresso").first()).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByText(/\d+ lines parsed/)).toBeVisible();
+    await expect(trackTitle(page)).toContainText('Espresso', { timeout: 20_000 });
+    await expect(header(page)).toContainText('Sabrina Carpenter');
+    await expect(header(page)).toContainText('Desktop (native)', { timeout: 20_000 });
+
+    // The docked lyrics surface renders with its view toggle and provider footer.
+    await expect(page.getByText('Karaoke (Synced)')).toBeVisible();
+    await expect(page.getByText('Full Sheet')).toBeVisible();
+    await expect(page.getByText(/^Provider:/)).toBeVisible();
   });
 
-  test('detects playback from the native desktop bridge', async ({ page }) => {
+  test('switches to the Most Listened view', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByText('Desktop (native)')).toBeVisible({ timeout: 20_000 });
+    const toggle = page.getByRole('button', { name: 'Most Listened' });
+    await toggle.click();
+    await expect(page.getByRole('button', { name: 'Hot' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Lifetime' })).toBeVisible();
+
+    await toggle.click();
+    await expect(page.getByText('Full Sheet')).toBeVisible();
   });
 
   test('switches tracks as the bridge reports a new snapshot', async ({ page }) => {
     await page.goto('/');
 
-    await expect(bannerTitle(page).first()).toBeVisible({ timeout: 15_000 });
+    await expect(trackTitle(page)).toBeVisible({ timeout: 20_000 });
     // Scripted step 2 (Cruel Summer) arrives within a 60s loop; wait for it.
-    await expect(page.getByRole('banner').locator('p', { hasText: 'Cruel Summer' })).toContainText(
-      'Taylor Swift',
-      { timeout: 45_000 }
-    );
+    await expect(trackTitle(page)).toContainText('Cruel Summer', { timeout: 45_000 });
+    await expect(header(page)).toContainText('Taylor Swift');
   });
 
-  test('maps an unknown desktop track and surfaces it in the banner', async ({ page }) => {
+  test('maps an unknown desktop track and surfaces it in the header', async ({ page }) => {
     await page.goto('/');
     // Scripted step 3 (City Lights, artist null) becomes `Unknown Artist`.
-    await expect(page.getByRole('banner').locator('p', { hasText: 'City Lights' })).toContainText(
-      'Unknown Artist',
-      { timeout: 60_000 }
-    );
-    // Lyric retrieval kicks off for the remote track; cache layer tolerates it
-    // and the karaoke window still renders the previous lyrics without crashing.
-    await expect(page.getByText(/lines parsed/)).toBeVisible();
+    await expect(trackTitle(page)).toContainText('City Lights', { timeout: 60_000 });
+    await expect(header(page)).toContainText('Unknown Artist');
+    await expect(page.getByText(/^Provider:/)).toBeVisible();
   });
 });

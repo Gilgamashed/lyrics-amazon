@@ -92,20 +92,12 @@ export const AI_CONFIG_ON: AIConfig = {
 
 export function makeWindowState(overrides: Partial<WindowState> = {}): WindowState {
   return {
-    x: 300,
-    y: 200,
-    width: 480,
-    height: 580,
     opacity: 0.9,
     blur: 16,
-    isPinned: true,
-    isMinimized: false,
-    isMaximized: false,
     viewMode: 'karaoke',
     theme: 'acrylic',
     fontSize: 'medium',
     autoScroll: true,
-    showAnnotations: false,
     ...overrides,
   };
 }
