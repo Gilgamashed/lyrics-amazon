@@ -31,6 +31,7 @@ futures-util = "0.3.34"
 
 [target."cfg(windows)".dependencies]
 windows = { version = "0.62.2", features = ["Foundation", "Media_Control", "Win32_System_Com", "Win32_Foundation"] }
+windows-collections = "0.3.2"
 
 [dev-dependencies]
 http-body-util = "0.1"

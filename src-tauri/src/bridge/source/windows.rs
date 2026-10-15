@@ -3,7 +3,7 @@ use std::task::{Context, Poll, Wake, Waker};
 
 use ::windows::Foundation::TimeSpan;
 use ::windows::Media::Control::{
-    GlobalSystemMediaTransportControlsSessionManager,
+    GlobalSystemMediaTransportControlsSession, GlobalSystemMediaTransportControlsSessionManager,
     GlobalSystemMediaTransportControlsSessionPlaybackStatus,
 };
 use ::windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx};
@@ -31,16 +31,35 @@ impl NowPlayingSource for WindowsSmtcSource {
     }
 }
 
-fn query_smtc() -> WinResult<Option<NowPlaying>> {
-    let manager = block_on(async {
-        GlobalSystemMediaTransportControlsSessionManager::RequestAsync()?.await
-    })?;
-    let Ok(session) = manager.GetCurrentSession() else {
-        return Ok(None);
-    };
+/// Amazon Music is preferred when multiple media sessions are playing so a
+/// concurrent YouTube/TikTok/other SMTC session cannot win the system's
+/// "current session".
+pub(crate) fn is_amazon_app(app_id: &str) -> bool {
+    let lower = app_id.to_lowercase();
+    let normalized: String = lower
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect();
+    normalized.contains("amazonmusic") || (lower.contains("amazon") && lower.contains("music"))
+}
 
-    let is_playing = session.GetPlaybackInfo()?.PlaybackStatus()?
-        == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing;
+fn session_is_playing(session: &GlobalSystemMediaTransportControlsSession) -> bool {
+    matches!(
+        session
+            .GetPlaybackInfo()
+            .and_then(|info| info.PlaybackStatus()),
+        Ok(GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing)
+    )
+}
+
+fn read_session(
+    session: &GlobalSystemMediaTransportControlsSession,
+) -> WinResult<Option<NowPlaying>> {
+    let is_playing = session
+        .GetPlaybackInfo()
+        .and_then(|info| info.PlaybackStatus())
+        .map(|status| status == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing)
+        .unwrap_or(false);
 
     let (position_ms, duration_ms) = match session.GetTimelineProperties() {
         Ok(timeline) => (
@@ -61,6 +80,32 @@ fn query_smtc() -> WinResult<Option<NowPlaying>> {
         position_ms,
         is_playing,
     }))
+}
+
+fn query_smtc() -> WinResult<Option<NowPlaying>> {
+    let manager = block_on(async {
+        GlobalSystemMediaTransportControlsSessionManager::RequestAsync()?.await
+    })?;
+
+    // Prefer an actively playing Amazon Music session when one is present.
+    if let Ok(sessions) = manager.GetSessions() {
+        for session in sessions {
+            let app_id = session
+                .SourceAppUserModelId()
+                .map(|id| id.to_string())
+                .unwrap_or_default();
+            if is_amazon_app(&app_id) && session_is_playing(&session) {
+                return read_session(&session);
+            }
+        }
+    }
+
+    // Otherwise fall back to the system's current session (unchanged behavior).
+    let Ok(session) = manager.GetCurrentSession() else {
+        return Ok(None);
+    };
+
+    read_session(&session)
 }
 
 fn block_on<F: std::future::Future>(future: F) -> F::Output {
@@ -125,5 +170,21 @@ mod tests {
             ))),
             None
         );
+    }
+
+    #[test]
+    fn is_amazon_app_matches_amazon_music_identifiers() {
+        assert!(is_amazon_app("AmazonMusic.exe"));
+        assert!(is_amazon_app("Amazon Music"));
+        assert!(is_amazon_app("com.amazon.music"));
+        assert!(is_amazon_app("AmazonMusicforWindows_8ck5d0f57g2e2!App"));
+    }
+
+    #[test]
+    fn is_amazon_app_rejects_other_media_apps() {
+        assert!(!is_amazon_app("chrome.exe"));
+        assert!(!is_amazon_app("Spotify.exe"));
+        assert!(!is_amazon_app("Amazon Prime Video"));
+        assert!(!is_amazon_app(""));
     }
 }

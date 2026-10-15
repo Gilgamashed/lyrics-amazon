@@ -12,6 +12,20 @@ impl MacOsMediaRemoteSource {
     }
 }
 
+/// Amazon Music is preferred when multiple media sources are active, keeping the
+/// source-priority structure consistent with the Windows adapter. `nowplaying-cli`
+/// exposes only the system's current source, so this helper documents the shared
+/// matching contract; live multi-source validation on macOS hardware is deferred.
+#[allow(dead_code)]
+pub(crate) fn is_amazon_app(app_id: &str) -> bool {
+    let lower = app_id.to_lowercase();
+    let normalized: String = lower
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect();
+    normalized.contains("amazonmusic") || (lower.contains("amazon") && lower.contains("music"))
+}
+
 impl NowPlayingSource for MacOsMediaRemoteSource {
     fn current(&self) -> Option<NowPlaying> {
         let output = Command::new("nowplaying-cli")
@@ -41,5 +55,12 @@ mod tests {
         let np = parse_nowplaying_cli_json(SOURCE_ID, fixture.as_bytes()).unwrap();
         assert_eq!(np.title.as_deref(), Some("Night Moves"));
         assert!(np.is_playing);
+    }
+
+    #[test]
+    fn is_amazon_app_matches_amazon_music_identifiers() {
+        assert!(is_amazon_app("com.amazon.music"));
+        assert!(is_amazon_app("Amazon Music"));
+        assert!(!is_amazon_app("com.spotify.client"));
     }
 }
