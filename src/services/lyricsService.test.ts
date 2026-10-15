@@ -3,6 +3,7 @@ import { AIConfig, LyricLine, LyricsData } from '../types/lyrics';
 import { CURATED_TRACKS } from './curatedTracks';
 import { clearLyricsCache } from './lyricsCache';
 import { getSavedAILyrics } from './aiLyricsStore';
+import { saveAcceptedLyrics } from './userLyricsStore';
 import { fetchLyrics, parseLrc, searchTracks } from './lyricsService';
 import { synthesizeLyrics } from './aiService';
 
@@ -27,6 +28,21 @@ const SONG = {
 
 function jsonOk(payload: unknown) {
   return { ok: true, status: 200, json: async () => payload } as Response;
+}
+
+function makeAccepted(text: string): LyricsData {
+  return {
+    songId: SONG.id,
+    title: SONG.title,
+    artist: SONG.artist,
+    album: SONG.album,
+    albumArt: '',
+    provider: 'azlyrics',
+    syncedLyrics: [{ id: 'acc-0', startTimeMs: 0, text }],
+    plainLyrics: text,
+    annotations: [],
+    trivia: [],
+  };
 }
 
 function abortableFetch() {
@@ -219,9 +235,10 @@ describe('fetchLyrics', () => {
   it('returns curated data without any network call', async () => {
     const song = { ...SONG, id: 'espresso-sabrina-carpenter', title: 'Espresso', artist: 'Sabrina Carpenter' };
     const result = await fetchLyrics(song);
-    expect(result.provider).toBe('Genius');
+    expect(result).not.toBeNull();
+    expect(result?.provider).toBe('Genius');
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(result.syncedLyrics.length).toBeGreaterThan(20);
+    expect(result?.syncedLyrics.length).toBeGreaterThan(20);
   });
 
   it('parses synced LRCLIB responses with generated annotations', async () => {
@@ -234,24 +251,27 @@ describe('fetchLyrics', () => {
     );
 
     const result = await fetchLyrics(SONG);
-    expect(result.provider).toBe('LRCLIB');
-    expect(result.songId).toBe(SONG.id);
-    expect(result.syncedLyrics).toHaveLength(3);
-    expect(result.syncedLyrics[0].startTimeMs).toBe(1000);
-    expect(result.annotations).toHaveLength(2);
-    expect(result.syncedLyrics[0].annotationId).toBe('gen-ann-1');
-    const lrclibUrl = fetchMock.mock.calls[0][0] as string;
+    expect(result).not.toBeNull();
+    expect(result?.provider).toBe('LRCLIB');
+    expect(result?.songId).toBe(SONG.id);
+    expect(result?.syncedLyrics).toHaveLength(3);
+    expect(result?.syncedLyrics[0].startTimeMs).toBe(1000);
+    expect(result?.annotations).toHaveLength(2);
+    expect(result?.syncedLyrics[0].annotationId).toBe('gen-ann-1');
+    const lrclibUrl = fetchMock.mock.calls
+      .map((c) => c[0] as string)
+      .find((url) => url.includes('lrclib.net'));
     expect(lrclibUrl).toContain('track_name=Random%20Test%20Track');
     expect(lrclibUrl).toContain('duration=200');
   });
 
-  it('synthesizes timestamps from plain-only lyrics', async () => {
+  it('returns plain-only provider results without synthesizing timestamps', async () => {
     fetchMock.mockResolvedValue(jsonOk({ plainLyrics: 'Line one\n\nLine two\nLine three' }));
     const result = await fetchLyrics(SONG);
-    expect(result.provider).toBe('Genius');
-    expect(result.syncedLyrics).toHaveLength(3);
-    expect(result.syncedLyrics[0].startTimeMs).toBe(3000);
-    expect(result.syncedLyrics[1].startTimeMs).toBeGreaterThan(3000);
+    expect(result).not.toBeNull();
+    expect(result?.provider).toBe('LRCLIB');
+    expect(result?.syncedLyrics).toHaveLength(0);
+    expect(result?.plainLyrics).toContain('Line one');
   });
 
   it('returns cached data on the second call without refetching', async () => {
@@ -262,11 +282,12 @@ describe('fetchLyrics', () => {
     const first = await fetchLyrics(SONG);
     const second = await fetchLyrics(SONG);
     expect(second).toBe(first);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-
-    // Bypassing the cache refetches.
-    await fetchLyrics(SONG, { useCache: false });
+    // Genius (empty) then LRCLIB (synced) on the cold path; cached on the second.
     expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    // Bypassing the cache refetches (Genius + LRCLIB again).
+    await fetchLyrics(SONG, { useCache: false });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
   it('reuses permanently saved AI lyrics', async () => {
@@ -291,8 +312,8 @@ describe('fetchLyrics', () => {
     );
 
     const result = await fetchLyrics(SONG, { aiConfig: AI_CONFIG });
-    expect(result.provider).toBe('AI Sync');
-    expect(result.syncedLyrics[0].text).toBe('Saved line');
+    expect(result?.provider).toBe('AI Sync');
+    expect(result?.syncedLyrics[0].text).toBe('Saved line');
   });
 
   it('calls the AI provider as a fallback and persists the result', async () => {
@@ -317,35 +338,53 @@ describe('fetchLyrics', () => {
     expect(getSavedAILyrics(SONG)).toEqual(aiData);
   });
 
-  it('keeps AI calls disabled when no configuration is provided', async () => {
+  it('returns null (not found) and keeps AI disabled when no configuration is provided', async () => {
     fetchMock.mockResolvedValue({ ok: false, status: 404 } as Response);
     const result = await fetchLyrics(SONG);
-    expect(result.provider).toBe('Genius');
+    expect(result).toBeNull();
     expect(vi.mocked(synthesizeLyrics)).not.toHaveBeenCalled();
   });
 
-  it('builds a graceful fallback when every provider misses', async () => {
+  it('returns null (not found) when every provider and AI miss', async () => {
     fetchMock.mockResolvedValue({ ok: false, status: 404 } as Response);
     const result = await fetchLyrics(SONG);
-
-    expect(result.syncedLyrics).toHaveLength(8);
-    expect(result.syncedLyrics[0].startTimeMs).toBe(4000);
-    expect(result.syncedLyrics[0].section).toBe('verse');
-    expect(result.syncedLyrics[4].section).toBe('chorus');
-    expect(result.syncedLyrics[1].annotationId).toBe('ann-custom-1');
-    expect(result.annotations).toHaveLength(2);
-    expect(result.trivia).toHaveLength(2);
-    expect(result.trackInfo?.writers).toEqual([SONG.artist]);
+    expect(result).toBeNull();
   });
 
-  it('aborts the LRCLIB request after its timeout and falls back', async () => {
+  it('isolates provider timeouts and reports not found once the chain is exhausted', async () => {
     vi.useFakeTimers();
     fetchMock.mockImplementation(abortableFetch());
 
     const pending = fetchLyrics(SONG);
-    await vi.advanceTimersByTimeAsync(4100);
+    await vi.advanceTimersByTimeAsync(20000);
     const result = await pending;
-    expect(result.provider).toBe('Genius');
-    expect(result.syncedLyrics).toHaveLength(8);
+    expect(result).toBeNull();
+  });
+
+  it('prefers user-accepted lyrics over every provider', async () => {
+    fetchMock.mockResolvedValue(
+      jsonOk({ syncedLyrics: '[00:01.00] Network line', plainLyrics: 'Network line' })
+    );
+    saveAcceptedLyrics(SONG, makeAccepted('Accepted override'));
+
+    const result = await fetchLyrics(SONG);
+    expect(result?.provider).toBe('azlyrics');
+    expect(result?.syncedLyrics[0].text).toBe('Accepted override');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('advances the chain when startFromIndex skips earlier providers', async () => {
+    fetchMock.mockResolvedValue(
+      jsonOk({
+        syncedLyrics: '[00:01.00] A fairly long first line\n[00:02.00] Second fairly long line',
+        plainLyrics: '',
+      })
+    );
+
+    const result = await fetchLyrics(SONG, { startFromIndex: 1 });
+    expect(result?.provider).toBe('LRCLIB');
+    const urls = fetchMock.mock.calls.map((c) => c[0] as string);
+    expect(urls.some((u) => u.includes('genius.com'))).toBe(false);
+    expect(urls.some((u) => u.includes('lrclib.net'))).toBe(true);
   });
 });

@@ -11,11 +11,40 @@ import {
 import { CURATED_TRACKS, CURATED_LYRICS_DATA } from './services/curatedTracks';
 import { fetchLyrics } from './services/lyricsService';
 import { resolveAIConfig } from './services/aiService';
+import { saveAcceptedLyrics } from './services/userLyricsStore';
 import { createBridgeClient, BridgeConnectionState } from './services/bridgeService';
 import { AmazonMusicBar } from './components/AmazonMusicBar';
-import { FloatingLyricsWindow } from './components/FloatingLyricsWindow';
+import { FloatingLyricsWindow, FeedbackState } from './components/FloatingLyricsWindow';
 import { BackgroundDesktop } from './components/BackgroundDesktop';
 import { APP_VERSION } from './appVersion';
+
+const PROVIDER_ORDER: LyricsData['provider'][] = [
+  'Genius',
+  'LRCLIB',
+  'azlyrics',
+  'letras.mus.br',
+  'musixmatch',
+];
+
+function providerIndexFor(label: LyricsData['provider']): number {
+  const idx = PROVIDER_ORDER.indexOf(label);
+  return idx === -1 ? PROVIDER_ORDER.length : idx;
+}
+
+function emptyLyricsData(song: Song): LyricsData {
+  return {
+    songId: song.id,
+    title: song.title,
+    artist: song.artist,
+    album: song.album,
+    albumArt: song.albumArt,
+    syncedLyrics: [],
+    plainLyrics: '',
+    provider: 'None',
+    annotations: [],
+    trivia: [],
+  };
+}
 
 function resolveDesktopSong(nowPlaying: NowPlaying): Song {
   const title = nowPlaying.title?.trim() || 'Unknown Track';
@@ -53,6 +82,8 @@ export default function App() {
     CURATED_LYRICS_DATA['espresso-sabrina-carpenter']
   );
   const [isLoadingLyrics, setIsLoadingLyrics] = useState(false);
+  const [feedbackState, setFeedbackState] = useState<FeedbackState>('none');
+  const lastProviderIndexRef = useRef(0);
 
   // Session-only AI fallback config (endpoint/model prefilled from env; key never persisted)
   const [aiConfig, setAiConfig] = useState<AIConfig>(() => resolveAIConfig());
@@ -129,31 +160,63 @@ export default function App() {
     return () => cancelAnimationFrame(animationFrameId);
   }, [isPlaying, currentSong.durationMs]);
 
-  // Load lyrics for a song using the given AI config (optionally bypassing caches)
-  const loadLyrics = useCallback(async (song: Song, config: AIConfig, useCache = true) => {
-    setIsLoadingLyrics(true);
-    try {
-      const data = await fetchLyrics(song, { useCache, aiConfig: config });
-      setLyricsData(data);
-    } catch {
-      // Keep previous or fallback
-    } finally {
-      setIsLoadingLyrics(false);
-    }
-  }, []);
+  // Load lyrics for a song using the given AI config (optionally bypassing caches).
+  // Applies the sync-mode rule: synchronized results drive Karaoke, plain-only results force Full Sheet.
+  const loadLyrics = useCallback(
+    async (song: Song, config: AIConfig, useCache = true, startFromIndex = 0) => {
+      setIsLoadingLyrics(true);
+      try {
+        const data = await fetchLyrics(song, { useCache, aiConfig: config, startFromIndex });
+        if (data) {
+          lastProviderIndexRef.current = providerIndexFor(data.provider);
+          setLyricsData(data);
+          setWindowState((prev) => {
+            const nextMode = data.syncedLyrics.length > 0 ? 'karaoke' : 'sheet';
+            return prev.viewMode === nextMode ? prev : { ...prev, viewMode: nextMode };
+          });
+        } else {
+          // Whole chain (curated + providers + AI) came up empty: genuine not-found.
+          setLyricsData(emptyLyricsData(song));
+        }
+      } catch {
+        setLyricsData(emptyLyricsData(song));
+      } finally {
+        setIsLoadingLyrics(false);
+      }
+    },
+    []
+  );
 
   // When song changes, fetch lyrics
   const handleSelectSong = async (song: Song) => {
     setCurrentSong(song);
     setCurrentTimeMs(0);
+    lastProviderIndexRef.current = 0;
+    setFeedbackState('none');
     await loadLyrics(song, aiConfig);
   };
 
   // Save session-only AI config and retry the current track (bypasses caches)
   const handleSaveAIConfig = async (config: AIConfig) => {
     setAiConfig(config);
+    lastProviderIndexRef.current = 0;
+    setFeedbackState('none');
     await loadLyrics(currentSong, config, false);
   };
+
+  // Thumbs up: persist the current winning lyrics locally (top priority on later lookups)
+  const handleThumbsUp = useCallback(() => {
+    if (lyricsData.syncedLyrics.length === 0 && !lyricsData.plainLyrics.trim()) return;
+    saveAcceptedLyrics(currentSong, lyricsData);
+    setFeedbackState('up');
+  }, [currentSong, lyricsData]);
+
+  // Thumbs down: advance the provider chain to the next source and re-render
+  const handleThumbsDown = useCallback(() => {
+    const next = lastProviderIndexRef.current + 1;
+    setFeedbackState('down');
+    void loadLyrics(currentSong, aiConfig, false, next);
+  }, [currentSong, aiConfig, loadLyrics]);
 
   // Keep the desktop bridge handler bound to the latest AI config without reconnecting
   useEffect(() => {
@@ -172,6 +235,8 @@ export default function App() {
 
       const song = resolveDesktopSong(nowPlaying);
       setCurrentSong(song);
+      lastProviderIndexRef.current = 0;
+      setFeedbackState('none');
       void loadLyrics(song, aiConfig);
     };
   });
@@ -288,6 +353,10 @@ export default function App() {
           syncOffsetMs={syncOffsetMs}
           onUpdateWindowState={handleUpdateWindowState}
           onSeek={(timeMs) => setCurrentTimeMs(timeMs)}
+          isLoadingLyrics={isLoadingLyrics}
+          feedbackState={feedbackState}
+          onThumbsUp={handleThumbsUp}
+          onThumbsDown={handleThumbsDown}
         />
       </div>
 

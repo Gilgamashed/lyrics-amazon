@@ -35,10 +35,15 @@ function lineP(text: string): HTMLElement {
 }
 
 describe('KaraokeLyricsView', () => {
-  it('shows the loading state for empty lyrics', () => {
-    renderView({ lyrics: [] });
+  it('shows the loading state while lyrics are being retrieved', () => {
+    renderView({ lyrics: [], isLoading: true });
     expect(screen.getByText('Retrieving synchronized lyrics...')).toBeInTheDocument();
-    expect(screen.getByText('Connecting to Genius and LRCLIB audio providers')).toBeInTheDocument();
+    expect(screen.getByText('Searching Genius, LRCLIB and other providers')).toBeInTheDocument();
+  });
+
+  it('shows the not-found state when the chain yields nothing', () => {
+    renderView({ lyrics: [], isLoading: false });
+    expect(screen.getByText('Lyrics not found')).toBeInTheDocument();
   });
 
   it('marks the last started line as active and the rest as past/upcoming', () => {

@@ -23,7 +23,11 @@ import {
   Move,
   Layers,
   Check,
+  ThumbsUp,
+  ThumbsDown,
 } from 'lucide-react';
+
+export type FeedbackState = 'none' | 'up' | 'down';
 
 interface FloatingLyricsWindowProps {
   windowState: WindowState;
@@ -32,6 +36,10 @@ interface FloatingLyricsWindowProps {
   syncOffsetMs: number;
   onUpdateWindowState: (updates: Partial<WindowState>) => void;
   onSeek: (timeMs: number) => void;
+  isLoadingLyrics?: boolean;
+  feedbackState?: FeedbackState;
+  onThumbsUp?: () => void;
+  onThumbsDown?: () => void;
 }
 
 export const FloatingLyricsWindow: React.FC<FloatingLyricsWindowProps> = ({
@@ -41,6 +49,10 @@ export const FloatingLyricsWindow: React.FC<FloatingLyricsWindowProps> = ({
   syncOffsetMs,
   onUpdateWindowState,
   onSeek,
+  isLoadingLyrics = false,
+  feedbackState = 'none',
+  onThumbsUp,
+  onThumbsDown,
 }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
@@ -475,6 +487,7 @@ export const FloatingLyricsWindow: React.FC<FloatingLyricsWindowProps> = ({
                 onUpdateWindowState({ showAnnotations: true });
               }}
               annotations={lyricsData.annotations}
+              isLoading={isLoadingLyrics}
             />
           ) : (
             <FullSheetLyricsView
@@ -484,6 +497,7 @@ export const FloatingLyricsWindow: React.FC<FloatingLyricsWindowProps> = ({
               artist={lyricsData.artist}
               fontSize={windowState.fontSize}
               onSeek={onSeek}
+              isLoading={isLoadingLyrics}
             />
           )}
         </div>
@@ -507,10 +521,45 @@ export const FloatingLyricsWindow: React.FC<FloatingLyricsWindowProps> = ({
           <span className="text-[11px] font-semibold text-cyan-400 flex items-center gap-1">
             <Music2 className="w-3 h-3" /> Provider: {lyricsData.provider}
           </span>
-          <span className="text-slate-600">·</span>
+          <span className="text-slate-600">•</span>
           <span className="text-[11px] text-slate-400">
-            {lyricsData.syncedLyrics.length} lines parsed
+            {lyricsData.syncedLyrics.length > 0
+              ? `${lyricsData.syncedLyrics.length} lines parsed`
+              : `${lyricsData.plainLyrics.split('\n').filter((l) => l.trim()).length} lines`}
           </span>
+          <span className="text-slate-600">•</span>
+          <div className="flex items-center gap-1" role="group" aria-label="Lyrics feedback">
+            <button
+              type="button"
+              onClick={onThumbsUp}
+              disabled={!onThumbsUp || isLoadingLyrics}
+              title="This lyrics result is correct - save it"
+              aria-pressed={feedbackState === 'up'}
+              data-testid="thumbs-up"
+              className={`p-1 rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                feedbackState === 'up'
+                  ? 'text-emerald-400 bg-emerald-500/15'
+                  : 'text-slate-400 hover:text-emerald-400 hover:bg-white/10'
+              }`}
+            >
+              <ThumbsUp className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={onThumbsDown}
+              disabled={!onThumbsDown || isLoadingLyrics}
+              title="Not right - try the next provider"
+              aria-pressed={feedbackState === 'down'}
+              data-testid="thumbs-down"
+              className={`p-1 rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                feedbackState === 'down'
+                  ? 'text-rose-400 bg-rose-500/15'
+                  : 'text-slate-400 hover:text-rose-400 hover:bg-white/10'
+              }`}
+            >
+              <ThumbsDown className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
 
         <div className="flex items-center gap-3">

@@ -68,6 +68,24 @@ describe('FullSheetLyricsView', () => {
     expect(writeText).toHaveBeenCalledWith(expect.stringContaining('First lyric line\nSecond lyric line\nThird lyric line'));
   });
 
+  it('shows the not-found state when there is no content and not loading', () => {
+    renderView({ lyrics: [], plainLyrics: '' });
+    expect(screen.getByText('Lyrics not found')).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText('Search within lyrics...')).toBeNull();
+  });
+
+  it('shows the retrieving state while loading', () => {
+    renderView({ lyrics: [], plainLyrics: '', isLoading: true });
+    expect(screen.getByText('Retrieving lyrics...')).toBeInTheDocument();
+  });
+
+  it('renders plain-only lyrics without timestamps', () => {
+    renderView({ lyrics: [], plainLyrics: 'Plain one\nPlain two' });
+    expect(screen.getByText('Plain one')).toBeInTheDocument();
+    expect(screen.getByText('Plain two')).toBeInTheDocument();
+    expect(screen.queryByTitle('Play from this line')).toBeNull();
+  });
+
   it('highlights search matches inside the lyric text', async () => {
     const user = userEvent.setup();
     renderView();

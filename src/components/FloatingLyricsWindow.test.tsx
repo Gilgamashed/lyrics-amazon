@@ -40,6 +40,30 @@ describe('FloatingLyricsWindow', () => {
     expect(screen.getByText('3 lines parsed')).toBeInTheDocument();
   });
 
+  it('fires the thumbs feedback callbacks', () => {
+    const onThumbsUp = vi.fn();
+    const onThumbsDown = vi.fn();
+    renderWindow({ onThumbsUp, onThumbsDown });
+
+    fireEvent.click(screen.getByTestId('thumbs-up'));
+    expect(onThumbsUp).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByTestId('thumbs-down'));
+    expect(onThumbsDown).toHaveBeenCalledTimes(1);
+  });
+
+  it('reflects the selected feedback state via aria-pressed', () => {
+    renderWindow({ feedbackState: 'down', onThumbsUp: vi.fn(), onThumbsDown: vi.fn() });
+    expect(screen.getByTestId('thumbs-down')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('thumbs-up')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('disables feedback controls while lyrics are loading', () => {
+    renderWindow({ isLoadingLyrics: true, onThumbsUp: vi.fn(), onThumbsDown: vi.fn() });
+    expect(screen.getByTestId('thumbs-up')).toBeDisabled();
+    expect(screen.getByTestId('thumbs-down')).toBeDisabled();
+  });
+
   it('renders the minimized pill and restores the window', () => {
     const state = makeWindowState({ isMinimized: true });
     const { onUpdateWindowState } = renderWindow({ windowState: state });

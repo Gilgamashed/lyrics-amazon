@@ -38,7 +38,15 @@ export interface LyricsData {
   albumArt: string;
   syncedLyrics: LyricLine[];
   plainLyrics: string;
-  provider: 'Genius' | 'LRCLIB' | 'Amazon Music' | 'AI Sync';
+  provider:
+    | 'Genius'
+    | 'LRCLIB'
+    | 'azlyrics'
+    | 'letras.mus.br'
+    | 'musixmatch'
+    | 'AI Sync'
+    | 'Amazon Music'
+    | 'None';
   annotations: GeniusAnnotation[];
   trivia: string[];
   trackInfo?: {
