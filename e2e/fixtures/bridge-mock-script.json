@@ -1,6 +1,6 @@
 [
   {
-    "holdMs": 20000,
+    "holdMs": 10000,
     "nowPlaying": {
       "source": "mock",
       "title": "Espresso",
@@ -12,7 +12,7 @@
     }
   },
   {
-    "holdMs": 20000,
+    "holdMs": 10000,
     "nowPlaying": {
       "source": "mock",
       "title": "Cruel Summer",
@@ -24,7 +24,7 @@
     }
   },
   {
-    "holdMs": 20000,
+    "holdMs": 10000,
     "nowPlaying": {
       "source": "mock",
       "title": "City Lights",
