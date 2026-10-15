@@ -2,12 +2,13 @@
 
 A standalone, desktop-style companion that retrieves synchronized lyrics and Genius annotations for songs currently playing on **Amazon Music** and displays them in a floating, translucent, draggable, and resizable glass window.
 
-- **Lyrics providers:** Genius, LRCLIB (synchronized LRC), curated local database.
+- **Lyrics providers:** an ordered chain — **Genius → LRCLIB (synchronized LRC) → azlyrics → letras.mus.br → musixmatch** — over a curated local database and an optional AI fallback. A genuine **"Lyrics not found"** state is shown only when the whole chain comes up empty.
 - **Playback sync:** click-to-seek, auto-scroll, and `±0.5s` / `±0.1s` offset calibration.
-- **Dual display modes:** Synchronized Karaoke and Full Lyrics Sheet.
+- **Dual display modes:** Synchronized Karaoke (synced results) and Full Lyrics Sheet (plain-only results).
+- **Per-song feedback:** thumbs up persists the accepted lyrics locally; thumbs down advances to the next provider.
 - **Window experience:** opacity/blur sliders, pin-to-top, minimize-to-pill, resize handles, and window presets.
 
-> Status: Phase 8 (Hardening & Release) — **MVP complete**; post-MVP packaging for live testing in progress (`specs/09_SPEC_POSTMVP-APP-PACK.md`). See `specs/PROJECT_OVERVIEW.MD` for the roadmap and `specs/00_AI-SAFE.md` for the SpecDD scope rules.
+> Status: Phase 8 (Hardening & Release) — **MVP complete**; post-MVP packaging (`specs/09_SPEC_POSTMVP-APP-PACK.md`) and the lyrics/UX minor patch (`specs/10_SPEC_POSTMVP-MIN-PATCH.md`) are implemented on `dev`. See `specs/PROJECT_OVERVIEW.MD` for the roadmap and `specs/00_AI-SAFE.md` for the SpecDD scope rules.
 
 ## Prerequisites
 
@@ -72,7 +73,7 @@ This starts the Vite dev server, compiles the Rust core, opens the desktop windo
 | `npm run tauri:dev` | Run the Tauri desktop shell + native bridge in dev mode. |
 | `npm run tauri:build` | Build the Tauri desktop app. |
 | `npm run bridge:smoke` | Hit the running bridge over HTTP + WebSocket. |
-| `npm run test` | Run the Vitest unit/component suites (131 tests). |
+| `npm run test` | Run the Vitest unit/component suites (172 tests). |
 | `npm run test:coverage` | Run Vitest with the v8 coverage provider. |
 | `npm run coverage:report` | Combined FE + Rust coverage aggregation (gate: ≥ 85% lines). |
 | `npm run test:e2e` | Build UI + bridge, run the Playwright E2E suite (8 tests). |
@@ -82,7 +83,8 @@ This starts the Vite dev server, compiles the Rust core, opens the desktop windo
 ```
 src/
   types/       Domain types (Song, LyricLine, LyricsData, WindowState, ...)
-  services/    Lyric engine (LRCLIB/Genius retrieval, LRC parsing, curated tracks, bridge client)
+  services/    Lyric engine (provider chain retrieval, LRC parsing, curated tracks, feedback/bridge clients)
+  services/providers/  Ordered lyrics sources (Genius, LRCLIB, azlyrics, letras.mus.br, musixmatch)
   components/  UI (FloatingLyricsWindow, KaraokeLyricsView, FullSheetLyricsView, ...)
 src-tauri/
   src/bridge/  Rust-native companion bridge (axum HTTP + WebSocket, per-OS now-playing adapters)
@@ -94,26 +96,40 @@ specs/
   PROMPTS.md            AI prompt & decision history
 ```
 
+## Lyrics Providers & Feedback
+
+`fetchLyrics(song, options?)` resolves lyrics through an ordered cascade and returns `LyricsData | null` (`null` only when the entire chain yields nothing):
+
+1. **User-accepted** — a result previously saved with thumbs up (`src/services/userLyricsStore.ts`, `localStorage`, `title|artist` key).
+2. **Curated** local database.
+3. **Provider chain** — **Genius → LRCLIB → azlyrics → letras.mus.br → musixmatch** (`src/services/providers/*`). Each provider self-times-out via `AbortController` and degrades to the next on error/block/miss, so playback is never blocked. Genius uses the **public search endpoint** (`/api/search/song?q=…`) to match a song, then retrieves its lyrics; the other sources use their public pages.
+4. **Saved AI** results (`provider: "AI Sync"`).
+5. **Live AI fallback** (see below).
+
+- **Sync semantics:** the chain prefers the first **synchronized** result and keeps the first **plain-only** result as a fallback. Synchronized results drive **Karaoke**; plain-only results render in **Full Sheet** mode (the window auto-switches view mode accordingly).
+- **Not found:** when curated + all providers + AI return nothing, the window shows **"Lyrics not found"**. The previous fabricated sample-lyrics fallback has been removed from the automatic path.
+- **Thumbs up:** persists the winning result locally (survives restarts, per `title|artist`) and is preferred on later lookups. **Thumbs down:** advances to the next provider in the chain; once exhausted it falls through to AI/not-found.
+
 ## Lyrics Cache
 
-Recently played song lyrics are cached **in memory** (no persistence) to avoid re-fetching from LRCLIB on repeat plays.
+Recently played song lyrics are cached **in memory** (no persistence) to avoid re-fetching from the provider chain on repeat plays.
 
 - **Scope:** `fetchLyrics` results only (recently played song data); search results are not cached.
 - **Key:** normalized `title|artist`.
 - **Bounded:** max 20 entries (LRU-style eviction of oldest on overflow).
 - **TTL:** entries expire after 7 days.
-- **Bypass:** `fetchLyrics(song, { useCache: false })` skips both cache lookup and write.
+- **Bypass:** `fetchLyrics(song, { useCache: false })` skips both cache lookup and write; `fetchLyrics(song, { startFromIndex })` starts mid-chain (used by thumbs down).
 - Created in `src/services/lyricsCache.ts`; exports `getCachedLyrics`, `setCachedLyrics`, `clearLyricsCache`, `getCacheStats`.
 
 ## AI Lyric Fallback
 
-When a track has no coverage in the curated database, LRCLIB, or Genius, the app can synthesize synchronized lyrics and annotations through a **provider-agnostic** adapter over any **OpenAI-compatible** `chat/completions` endpoint.
+When a track has no coverage in the curated database or any provider in the chain, the app can synthesize synchronized lyrics and annotations through a **provider-agnostic** adapter over any **OpenAI-compatible** `chat/completions` endpoint.
 
 - **Configuration:** endpoint and model are resolved from the **AI Options** menu (top bar) first, then from `VITE_AI_PROVIDER_URL` / `VITE_AI_MODEL`. A Google Gemini model is an option, not a requirement.
 - **API key:** entered in the **AI Options** menu and held **in memory for the session only** — it is never written to disk, env, or the client bundle. It is sent only to the provider you configure.
 - **Requests:** issued directly from the browser via `fetch` to `${providerUrl}/chat/completions`. Some providers may reject cross-origin requests (CORS) — if so, run the app behind a proxy for that provider.
 - **Persistence:** AI-generated results (`provider: "AI Sync"`) are saved **permanently in `localStorage`** (keyed by `title|artist`, no expiry) and reused on repeat plays. Use **Clear** in the AI Options menu to remove them.
-- **Fallback:** if the provider is unconfigured, unreachable, times out, or returns malformed data, the app silently falls back to the canned lyrics without blocking playback.
+- **Fallback:** if the provider is unconfigured, unreachable, times out, or returns malformed data, the app degrades to the genuine **"Lyrics not found"** state without blocking playback (fabricated lyrics are no longer produced).
 
 > Security note: keeping a built-in key out of the client would require a server-side proxy (the key never reaches the browser). This is intentionally deferred — see `specs/05_SPEC_AIFALLBACK.md` §5.
 
@@ -121,7 +137,7 @@ When a track has no coverage in the curated database, LRCLIB, or Genius, the app
 
 The Amazon Music **desktop app** is detected by a Rust-native bridge hosted in the Tauri core (single binary, no Node runtime shipped). It reads OS-level now-playing metadata and publishes it on localhost:
 
-- **Windows (this phase):** SMTC via `windows-rs` `GlobalSystemMediaTransportControlsSessionManager`, polled once per second (MTA COM, session title/artist/album, timeline position/duration, playback status).
+- **Windows (this phase):** SMTC via `windows-rs` `GlobalSystemMediaTransportControlsSessionManager`, polled once per second (MTA COM, session title/artist/album, timeline position/duration, playback status). When several media apps are running, the bridge **prefers a playing Amazon Music session**, and otherwise falls back to the system's current session (behavior-neutral when only one session exists). The macOS/Linux adapters mirror the same preference structurally.
 - **macOS / Linux (best-effort, code-complete):** `nowplaying-cli` (MediaRemote) and `playerctl` (MPRIS) adapters behind a common `NowPlayingSource` interface; they compile and pass their fixture suites on macOS/Ubuntu in CI, but live-session validation on real hardware is a post-MVP item.
 - **Transport:** `GET /now-playing` (current snapshot), `GET /health`, and `GET /ws` — a WebSocket that pushes every change. All on `127.0.0.1:48765`, localhost only.
 - **Payload:** `NowPlaying { source, title, artist, album, durationMs, positionMs, isPlaying }` (`camelCase` JSON).
@@ -162,7 +178,7 @@ npm run tauri:build
 
 A workflow (`.github/workflows/ci.yml`) runs on every push to `dev` and on pull requests:
 
-- **`quality-gates`** (Windows runner): `tsc --noEmit` lint, production build, 131 Vitest tests, the combined ≥ 85% coverage gate, `cargo fmt --check`, `cargo clippy --all-targets`, 36 Rust tests, and the 8-test Playwright E2E suite (system Chrome is preinstalled on the runner — no bundled Chromium download).
+- **`quality-gates`** (Windows runner): `tsc --noEmit` lint, production build, 172 Vitest tests, the combined ≥ 85% coverage gate, `cargo fmt --check`, `cargo clippy --all-targets`, 38 Rust tests, and the 8-test Playwright E2E suite (system Chrome is preinstalled on the runner — no bundled Chromium download).
 - **`platform-matrix`** (macOS + Ubuntu runners): `npm ci`, lint, build, and `cargo test` — the multi-platform validation cover (Ubuntu installs the Tauri system dependencies first).
 - The workflow is intentionally **secrets-free** (public runners, no signing) and caches the npm and Cargo build caches between runs.
 
@@ -172,30 +188,30 @@ A second workflow (`.github/workflows/release.yml`) runs when a `v*` tag is push
 
 Implemented in Phase 7 (`specs/07_SPEC_TESTING.md`). Three layers:
 
-- **Frontend (Vitest + jsdom + Testing Library):** `npm run test` runs 131 tests — 5 service suites, 7 component/state suites, and `App`. Covers LRC parsing, the lyric/AI/cache/bridge services, the playback state machine, network resiliency (timeouts, non-OK, malformed payloads), and UI contracts.
-- **Rust core (`cargo test`):** 36 tests in `src-tauri/src` — `NowPlaying` serde, metadata parsers (macOS `nowplaying-cli` / Linux `playerctl` fixtures run on Windows), sanitizers, the poller, and axum `/health`, `/now-playing`, `/ws` integration incl. localhost-only CORS.
+- **Frontend (Vitest + jsdom + Testing Library):** `npm run test` runs 172 tests across provider-chain, service, component/state, and `App` suites. Covers LRC parsing, the lyric/AI/cache/bridge services, the ordered provider chain + per-provider extraction, the not-found state, thumbs feedback persistence, the playback state machine, network resiliency (timeouts, non-OK, malformed payloads), and UI contracts.
+- **Rust core (`cargo test`):** 38 tests in `src-tauri/src` — `NowPlaying` serde, metadata parsers (macOS `nowplaying-cli` / Linux `playerctl` fixtures run on Windows), the Amazon Music session-preference helpers, sanitizers, the poller, and axum `/health`, `/now-playing`, `/ws` integration incl. localhost-only CORS.
 - **E2E (Playwright):** `npm run test:e2e` builds the UI and the real bridge binary, spawns the bridge with a test-only mock now-playing source, and drives **system Chrome** (`channel: 'chrome'`; the bundled Chromium download is unreliable in this environment) through the connected and degraded paths — boot into the curated Espresso track, Desktop (native) badge, track change via the bridge, unknown-track mapping, HTTP/WebSocket contract, and fall-back to Browser (Media Session) when the bridge is killed.
 
-**Coverage policy:** combined line coverage across frontend and Rust must be ≥ **85%** (hard gate). Aggregation runs fresh Vitest coverage plus `cargo llvm-cov --json` in `scripts/coverage-report.ts`; it exits non-zero on failure. Exclusions (spec-approved, enforced): `src/main.tsx`, `*.test.ts(x)`, `src/test/**`, `src-tauri/src/main.rs`, `src-tauri/build.rs`, `src-tauri/gen/**`. Latest result: **92.81%** combined (FE 91.99%, Rust 93.92%) — see `specs/07_SPEC_TESTING.md` §6.
+**Coverage policy:** combined line coverage across frontend and Rust must be ≥ **85%** (hard gate). Aggregation runs fresh Vitest coverage plus `cargo llvm-cov --json` in `scripts/coverage-report.ts`; it exits non-zero on failure. Exclusions (spec-approved, enforced): `src/main.tsx`, `*.test.ts(x)`, `src/test/**`, `src-tauri/src/main.rs`, `src-tauri/build.rs`, `src-tauri/gen/**`. Latest result: **90.13%** combined (FE 90.69%, Rust 89.18%) — see `specs/07_SPEC_TESTING.md` §6.
 
 **E2E bridge mock:** `BRIDGE_MOCK_SCRIPT=<json>` loads a scripted now-playing source used only by tests — an array of `{ "holdMs": number, "nowPlaying": NowPlaying }` steps, evaluated against cumulative elapsed time and looped (`e2e/fixtures/bridge-mock-script.json`). Unset, the bridge uses real OS detection with no behavior change.
 
 ## Runtime Smoke-Verification
 
-Exercise the lyric engine against live LRCLIB with and without cache:
+Exercise the live provider chain with and without cache:
 
 ```bash
 npm run smoke
 ```
 
-Uses a track that is **not** in the curated database (e.g., *Yesterday — The Beatles*) to force a real network request, then measures cold fetch vs warm cache-hit latency.
+Uses a track that is **not** in the curated database (e.g., *Yesterday — The Beatles*) to force real network requests through the chain, then measures cold fetch vs warm cache-hit latency.
 
-Result of a live run (2026-10-12):
+Result of a live run (2026-10-13):
 
 | Pass | `useCache` | Latency | Provider | Lines |
 | :--- | :--- | ---: | :--- | ---: |
-| Cold (forced network) | `false` | 400 ms | LRCLIB | 20 |
-| Warm (cache miss) | `true` | 223 ms | LRCLIB | 20 |
+| Cold (forced network) | `false` | 1728 ms | LRCLIB | 20 |
+| Warm (cache miss) | `true` | 814 ms | LRCLIB | 20 |
 | Warm (cache hit) | `true` | 0 ms | LRCLIB | 20 |
 
 The cache-hit pass avoids the network round-trip entirely (0 ms), confirming `fetchLyrics` returns cached `LyricsData` for repeat plays.

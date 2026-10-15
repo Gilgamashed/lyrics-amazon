@@ -29,9 +29,10 @@ The application connects Amazon Music listeners with lyrics and song meanings fr
    - Amazon Music live track quick-input bar and full song/artist search with instant search suggestions.
 
 2. **Multi-Provider Lyric Engine**
-   - **LRCLIB** for millisecond-precision, synchronized (LRC) lyrics.
-   - **Genius** for rich text, verified annotations, and track trivia.
-   - **Customizable AI fallback adapter** for tracks missing timestamped metadata — synchronizes lyrics and generates annotations without vendor lock-in.
+   - An ordered provider chain — **Genius → LRCLIB → azlyrics → letras.mus.br → musixmatch** — over the curated local database.
+   - **LRCLIB** for millisecond-precision, synchronized (LRC) lyrics; **Genius** for rich text, verified annotations, and track trivia.
+   - A genuine **"Lyrics not found"** state when the whole chain comes up empty (no fabricated lyrics), plus **per-song thumbs up/down** feedback that persists accepted results locally or advances to the next provider.
+   - **Customizable AI fallback adapter** for tracks still missing timestamped metadata — synchronizes lyrics and generates annotations without vendor lock-in.
 
 3. **Floating Lyrics Window Experience**
    - A frosted-glass window with custom translucency/opacity slider, background blur control, pinned overlay mode, corner/edge resize handles, minimize-to-floating-pill, and full-screen view.
@@ -49,10 +50,10 @@ The system is organized into 6 logical layers, designed to run standalone (brows
    - The floating lyrics HUD window itself (draggable, resizable, translatable).
 2. **Track Detection & Playback Sync**
    - Browser `navigator.mediaSession` (web player) with play/pause/seek handlers.
-   - **Native Companion Bridge**: OS now-playing integration — Windows `GlobalSystemMediaTransportControlsSessionManager` (SMTC), macOS MediaRemote/`nowplaying-cli`, Linux MPRIS D-Bus — publishing track metadata over a localhost endpoint.
+   - **Native Companion Bridge**: OS now-playing integration — Windows `GlobalSystemMediaTransportControlsSessionManager` (SMTC), macOS MediaRemote/`nowplaying-cli`, Linux MPRIS D-Bus — publishing track metadata over a localhost endpoint. When multiple sessions exist, it prefers a playing **Amazon Music** session, else the system's current session.
    - Playback timer with `±0.5s` / `±0.1s` sync-offset calibration against the user's exact audio stream.
 3. **Lyric Services (Business Logic)**
-   - `src/services/lyricsService.ts`: unified search (`searchTracks`), retrieval and LRC parsing (`parseLrc`), and fallback generation (`fetchLyrics`, `createFallbackLyrics`).
+   - `src/services/lyricsService.ts`: unified search (`searchTracks`), retrieval and LRC parsing (`parseLrc`), and the accepted → curated → provider-chain → saved-AI → AI cascade (`fetchLyrics`, returning `LyricsData | null`), with per-provider adapters under `src/services/providers/` and accepted-lyrics persistence in `src/services/userLyricsStore.ts`.
    - `src/services/curatedTracks.ts`: curated local database of trending/tracked songs for instant offline results.
    - Domain types in `src/types/lyrics.ts`: `Song`, `LyricLine`, `LyricsData`, `GeniusAnnotation`, `WindowState`, `WindowPreset`.
 4. **Artificial Intelligence Layer (Pluggable)**
@@ -101,14 +102,14 @@ The project is considered complete when it satisfies the following functional an
 | **Phase 7** | **Automated testing & verification**: unit/component tests (frontend + Rust core), bridge HTTP/WS integration tests, and a real frontend↔backend E2E suite, targeting ≥ 85% combined line coverage with documented findings. |
 | **Phase 8** | Hardening & release: typecheck/lint clean, multi-platform validation, docs, and final demo. |
 
-> **Post-MVP track:** the 8-phase MVP above is complete. Work now continues on the post-MVP backlog catalogued in `specs/08_SPEC_HARDENING.md` §5 (code signing/notarization, auto-update, cross-platform installers, and more). The first post-MVP spec is `specs/09_SPEC_POSTMVP-APP-PACK.md` — **App Packaging for Live Testing** (versioned, self-updating Windows build distributed via GitHub Releases).
+> **Post-MVP track:** the 8-phase MVP above is complete. Work now continues on the post-MVP backlog catalogued in `specs/08_SPEC_HARDENING.md` §5 (code signing/notarization, auto-update, cross-platform installers, and more). The first post-MVP spec is `specs/09_SPEC_POSTMVP-APP-PACK.md` — **App Packaging for Live Testing** (versioned, self-updating Windows build distributed via GitHub Releases); the second is `specs/10_SPEC_POSTMVP-MIN-PATCH.md` — **Lyrics Fallback & UX Minor Patch** (live Genius source + genuine "Lyrics not found", the multi-provider chain before AI, Amazon Music session prioritization on Windows, and per-song thumbs up/down), landed on `dev` with no version bump or release.
 
 ---
 
 ## 6. Reference Technology Stack
 
 * **UI & Language:** React 19, TypeScript, Vite, Tailwind CSS, `lucide-react`, `motion`.
-* **Lyrics & Annotations Providers:** Genius, LRCLIB (LRC synced lyrics), curated local database.
+* **Lyrics & Annotations Providers:** ordered chain — Genius, LRCLIB (LRC synced lyrics), azlyrics, letras.mus.br, musixmatch — over a curated local database, with per-song thumbs up/down persistence.
 * **Artificial Intelligence (Optional & Pluggable):** provider-agnostic adapter (OpenAI-compatible endpoint), configurable by env (`AI_PROVIDER_URL`, `AI_MODEL`, `AI_API_KEY`); Gemini via `@google/genai` as an optional adapter only.
 * **Native Desktop Bridge:** Electron or Tauri shell; Windows System Media Transport Controls (SMTC), macOS MediaRemote, Linux MPRIS (D-Bus).
 * **Backend/Serving:** Express (`server` support), `.env` configuration consumed by the AI Studio runtime.
