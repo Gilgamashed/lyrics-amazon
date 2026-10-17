@@ -8,7 +8,10 @@
       "album": "Short n' Sweet",
       "durationMs": 175000,
       "positionMs": 90000,
-      "isPlaying": true
+      "isPlaying": true,
+      "appId": "AmazonMusic.exe",
+      "isAmazon": true,
+      "albumArt": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
     }
   },
   {
@@ -20,7 +23,10 @@
       "album": "Lover",
       "durationMs": 178000,
       "positionMs": 3000,
-      "isPlaying": true
+      "isPlaying": true,
+      "appId": "AmazonMusic.exe",
+      "isAmazon": true,
+      "albumArt": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
     }
   },
   {
@@ -32,7 +38,10 @@
       "album": null,
       "durationMs": 120000,
       "positionMs": 5000,
-      "isPlaying": true
+      "isPlaying": true,
+      "appId": "AmazonMusic.exe",
+      "isAmazon": true,
+      "albumArt": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
     }
   }
 ]

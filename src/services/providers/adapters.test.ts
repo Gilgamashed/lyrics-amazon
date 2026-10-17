@@ -1,6 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { extractLyricsFromHtml as extractGenius } from './genius';
-import { extractPlain, isAbortError, linesToPlain, normalize } from './base';
+import {
+  extractPlain,
+  isAbortError,
+  linesToPlain,
+  normalize,
+  withTimeoutSignal,
+} from './base';
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe('genius html extraction', () => {
   it('extracts and decodes a single lyrics container', () => {
@@ -84,5 +94,43 @@ describe('base helpers', () => {
         { id: 'b', startTimeMs: 1, text: 'two' },
       ])
     ).toBe('one\ntwo');
+  });
+});
+
+describe('withTimeoutSignal', () => {
+  it('aborts after the timeout elapses', () => {
+    vi.useFakeTimers();
+    const { signal, cleanup } = withTimeoutSignal(1000);
+    expect(signal.aborted).toBe(false);
+    vi.advanceTimersByTime(1000);
+    expect(signal.aborted).toBe(true);
+    cleanup();
+  });
+
+  it('aborts immediately when the external signal is already aborted', () => {
+    const external = new AbortController();
+    external.abort();
+    const { signal, cleanup } = withTimeoutSignal(1000, external.signal);
+    expect(signal.aborted).toBe(true);
+    cleanup();
+  });
+
+  it('follows a later external abort', () => {
+    const external = new AbortController();
+    const { signal, cleanup } = withTimeoutSignal(60_000, external.signal);
+    expect(signal.aborted).toBe(false);
+    external.abort();
+    expect(signal.aborted).toBe(true);
+    cleanup();
+  });
+
+  it('cleanup clears the timer and detaches the external listener', () => {
+    vi.useFakeTimers();
+    const external = new AbortController();
+    const { signal, cleanup } = withTimeoutSignal(1000, external.signal);
+    cleanup();
+    vi.advanceTimersByTime(5000);
+    external.abort();
+    expect(signal.aborted).toBe(false);
   });
 });

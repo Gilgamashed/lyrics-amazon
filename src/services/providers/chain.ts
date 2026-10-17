@@ -1,11 +1,18 @@
 import { Song } from '../../types/lyrics';
+import { devLog } from '../devLog';
 import { fetchGenius } from './genius';
 import { fetchLrcLib } from './lrclib';
 import { LyricsProviderResult } from './types';
 
-export type ProviderFn = (song: Song, timeoutMs: number) => Promise<LyricsProviderResult>;
+export type ProviderFn = (
+  song: Song,
+  timeoutMs: number,
+  signal?: AbortSignal
+) => Promise<LyricsProviderResult>;
 
 const PROVIDERS: ProviderFn[] = [fetchGenius, fetchLrcLib];
+
+const PROVIDER_NAMES = ['Genius', 'LRCLIB'];
 
 const DEFAULT_TIMEOUTS = [4000, 4000];
 
@@ -30,17 +37,27 @@ export async function runProviderChain(
   song: Song,
   startIndex = 0,
   providers: ProviderFn[] = PROVIDERS,
-  timeouts: number[] = DEFAULT_TIMEOUTS
+  timeouts: number[] = DEFAULT_TIMEOUTS,
+  signal?: AbortSignal
 ): Promise<ChainResult> {
   const limit = providers.length;
   const from = Math.max(0, Math.min(startIndex, limit));
+  const key = `${song.title}|${song.artist}`;
 
   let plainFallback: { result: LyricsProviderResult; index: number } | null = null;
 
   for (let i = from; i < limit; i++) {
     const fn = providers[i];
+    const name = PROVIDER_NAMES[i] ?? `provider-${i}`;
+    const startedAt = Date.now();
     try {
-      const res = await fn(song, timeouts[i] ?? 3500);
+      const res = await fn(song, timeouts[i] ?? 3500, signal);
+      const outcome = res.syncedLyrics?.length
+        ? 'synced'
+        : res.plainLyrics && res.plainLyrics.trim().length > 0
+          ? 'plain'
+          : 'empty';
+      devLog('provider-attempt', { key, provider: name, outcome, ms: Date.now() - startedAt });
       if (res.syncedLyrics && res.syncedLyrics.length > 0) {
         return { result: res, usedIndex: i, exhausted: false };
       }
@@ -49,6 +66,12 @@ export async function runProviderChain(
       }
     } catch {
       // isolate provider errors and continue down the chain
+      devLog('provider-attempt', {
+        key,
+        provider: name,
+        outcome: 'error',
+        ms: Date.now() - startedAt,
+      });
     }
   }
 

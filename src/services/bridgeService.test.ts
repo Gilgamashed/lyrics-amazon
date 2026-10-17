@@ -15,6 +15,9 @@ const PLAYING: NowPlaying = {
   durationMs: 12_000,
   positionMs: 500,
   isPlaying: true,
+  appId: 'AmazonMusic.exe',
+  isAmazon: true,
+  albumArt: null,
 };
 
 describe('getBridgeHttpUrl', () => {

@@ -4,13 +4,21 @@ use std::task::{Context, Poll, Wake, Waker};
 use ::windows::Foundation::TimeSpan;
 use ::windows::Media::Control::{
     GlobalSystemMediaTransportControlsSession, GlobalSystemMediaTransportControlsSessionManager,
+    GlobalSystemMediaTransportControlsSessionMediaProperties,
     GlobalSystemMediaTransportControlsSessionPlaybackStatus,
 };
+use ::windows::Storage::Streams::{DataReader, IRandomAccessStream};
 use ::windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx};
-use ::windows::core::Result as WinResult;
+use ::windows::core::{Interface, Result as WinResult};
+use base64::Engine;
 
 use crate::bridge::now_playing::NowPlaying;
 use crate::bridge::source::{NowPlayingSource, SOURCE_ID};
+
+/// Upper bound on the album-art payload embedded as a `data:` URL. SMTC
+/// thumbnails are already compressed image streams; oversized art is dropped
+/// rather than truncated so we never emit a corrupt image.
+const MAX_ALBUM_ART_BYTES: usize = 256 * 1024;
 
 static COM_INIT: Once = Once::new();
 
@@ -54,6 +62,7 @@ fn session_is_playing(session: &GlobalSystemMediaTransportControlsSession) -> bo
 
 fn read_session(
     session: &GlobalSystemMediaTransportControlsSession,
+    app_id: &str,
 ) -> WinResult<Option<NowPlaying>> {
     let is_playing = session
         .GetPlaybackInfo()
@@ -79,7 +88,55 @@ fn read_session(
         duration_ms,
         position_ms,
         is_playing,
+        app_id: (!app_id.trim().is_empty()).then(|| app_id.to_string()),
+        is_amazon: is_amazon_app(app_id),
+        album_art: read_thumbnail(&media),
     }))
+}
+
+/// Best-effort read of the SMTC thumbnail as a size-capped `data:` URL. Any
+/// failure (missing art, unreadable stream, oversized payload) degrades to
+/// `None` so detection is never blocked by artwork.
+fn read_thumbnail(
+    media: &GlobalSystemMediaTransportControlsSessionMediaProperties,
+) -> Option<String> {
+    let reference = media.Thumbnail().ok()?;
+    let stream = block_on(async { reference.OpenReadAsync()?.await }).ok()?;
+
+    let size = stream.Size().ok()? as usize;
+    if size == 0 || size > MAX_ALBUM_ART_BYTES {
+        return None;
+    }
+
+    let input = stream
+        .cast::<IRandomAccessStream>()
+        .ok()?
+        .GetInputStreamAt(0)
+        .ok()?;
+    let reader = DataReader::CreateDataReader(&input).ok()?;
+    block_on(async { reader.LoadAsync(size as u32)?.await }).ok()?;
+
+    let mut buffer = vec![0u8; size];
+    reader.ReadBytes(&mut buffer).ok()?;
+
+    let mime = stream
+        .ContentType()
+        .map(|value| value.to_string())
+        .unwrap_or_default();
+    encode_thumbnail_data_url(&mime, &buffer)
+}
+
+/// Pure encoder for the thumbnail: returns `None` for empty or oversized
+/// payloads, otherwise a `data:<mime>;base64,<bytes>` URL defaulting to JPEG
+/// when the stream reports no content type.
+fn encode_thumbnail_data_url(mime: &str, bytes: &[u8]) -> Option<String> {
+    if bytes.is_empty() || bytes.len() > MAX_ALBUM_ART_BYTES {
+        return None;
+    }
+    let mime = mime.trim();
+    let mime = if mime.is_empty() { "image/jpeg" } else { mime };
+    let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+    Some(format!("data:{mime};base64,{encoded}"))
 }
 
 fn query_smtc() -> WinResult<Option<NowPlaying>> {
@@ -95,17 +152,23 @@ fn query_smtc() -> WinResult<Option<NowPlaying>> {
                 .map(|id| id.to_string())
                 .unwrap_or_default();
             if is_amazon_app(&app_id) && session_is_playing(&session) {
-                return read_session(&session);
+                return read_session(&session, &app_id);
             }
         }
     }
 
-    // Otherwise fall back to the system's current session (unchanged behavior).
+    // Otherwise fall back to the system's current session (unchanged behavior),
+    // still reporting its identity so the UI can distinguish Amazon from other
+    // concurrent media sessions.
     let Ok(session) = manager.GetCurrentSession() else {
         return Ok(None);
     };
 
-    read_session(&session)
+    let app_id = session
+        .SourceAppUserModelId()
+        .map(|id| id.to_string())
+        .unwrap_or_default();
+    read_session(&session, &app_id)
 }
 
 fn block_on<F: std::future::Future>(future: F) -> F::Output {
@@ -186,5 +249,26 @@ mod tests {
         assert!(!is_amazon_app("Spotify.exe"));
         assert!(!is_amazon_app("Amazon Prime Video"));
         assert!(!is_amazon_app(""));
+    }
+
+    #[test]
+    fn encode_thumbnail_builds_a_data_url() {
+        let url = encode_thumbnail_data_url("image/png", &[1, 2, 3, 4]).unwrap();
+        assert_eq!(url, "data:image/png;base64,AQIDBA==");
+    }
+
+    #[test]
+    fn encode_thumbnail_defaults_to_jpeg_for_blank_mime() {
+        let url = encode_thumbnail_data_url("   ", &[0xff, 0xd8]).unwrap();
+        assert!(url.starts_with("data:image/jpeg;base64,"));
+    }
+
+    #[test]
+    fn encode_thumbnail_rejects_empty_and_oversized_payloads() {
+        assert_eq!(encode_thumbnail_data_url("image/png", &[]), None);
+        let oversized = vec![0u8; MAX_ALBUM_ART_BYTES + 1];
+        assert_eq!(encode_thumbnail_data_url("image/png", &oversized), None);
+        let at_cap = vec![0u8; MAX_ALBUM_ART_BYTES];
+        assert!(encode_thumbnail_data_url("image/png", &at_cap).is_some());
     }
 }

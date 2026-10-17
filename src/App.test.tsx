@@ -4,7 +4,38 @@ import App from './App';
 import { APP_VERSION } from './appVersion';
 import { fetchLyrics } from './services/lyricsService';
 import { recordPlay } from './services/playHistoryStore';
-import { LyricsData, Song } from './types/lyrics';
+import { trackKey } from './services/metaOverrideStore';
+import { LyricsData, NowPlaying, Song } from './types/lyrics';
+
+vi.mock('./services/playHistoryStore', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./services/playHistoryStore')>();
+  return { ...actual, recordPlay: vi.fn(actual.recordPlay) };
+});
+
+let rafCallback: ((time: number) => void) | null = null;
+function runFrame() {
+  act(() => {
+    rafCallback?.(0);
+  });
+}
+
+function nowPlaying(overrides: Partial<NowPlaying> = {}): NowPlaying {
+  return {
+    source: 'Amazon Music',
+    title: 'Track',
+    artist: 'Artist',
+    album: null,
+    durationMs: 180_000,
+    positionMs: 0,
+    isPlaying: true,
+    appId: 'AmazonMusic.exe',
+    isAmazon: true,
+    albumArt: null,
+    ...overrides,
+  };
+}
+
+const OVERRIDES_KEY = 'lyrics-amazon:meta-overrides:v1';
 
 const bridgeBridge = vi.hoisted(() => ({
   client: { start: vi.fn(), stop: vi.fn() },
@@ -84,13 +115,19 @@ describe('App', () => {
     bridgeBridge.onConnectionChange = () => {};
     bridgeBridge.onNowPlaying = () => {};
     vi.mocked(fetchLyrics).mockClear();
+    vi.mocked(recordPlay).mockClear();
     localStorage.clear();
     stubMediaSession();
-    vi.stubGlobal('requestAnimationFrame', () => 0);
+    rafCallback = null;
+    vi.stubGlobal('requestAnimationFrame', (cb: (time: number) => void) => {
+      rafCallback = cb;
+      return 1;
+    });
     vi.stubGlobal('cancelAnimationFrame', () => {});
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     delete (navigator as { mediaSession?: unknown }).mediaSession;
   });
@@ -134,13 +171,16 @@ describe('App', () => {
         durationMs: 180_000,
         positionMs: 5_000,
         isPlaying: true,
+        appId: 'AmazonMusic.exe',
+        isAmazon: true,
+        albumArt: null,
       });
     });
 
     const banner = screen.getByRole('banner');
     expect(within(banner).getByText('City Lights')).toBeInTheDocument();
     expect(vi.mocked(fetchLyrics)).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'desktop-city-lights-unknown' }),
+      expect.objectContaining({ id: 'desktop-city-lights-unknown-artist' }),
       expect.objectContaining({ useCache: true })
     );
     expect(await screen.findByText('City Lights opening')).toBeInTheDocument();
@@ -155,6 +195,9 @@ describe('App', () => {
         durationMs: 180_000,
         positionMs: 10_000,
         isPlaying: true,
+        appId: 'AmazonMusic.exe',
+        isAmazon: true,
+        albumArt: null,
       });
     });
     expect(vi.mocked(fetchLyrics)).not.toHaveBeenCalled();
@@ -173,6 +216,9 @@ describe('App', () => {
         durationMs: 180_000,
         positionMs: 5_000,
         isPlaying: true,
+        appId: 'AmazonMusic.exe',
+        isAmazon: true,
+        albumArt: null,
       });
     });
     await screen.findByText('City Lights opening');
@@ -190,6 +236,7 @@ describe('App', () => {
   it('shows the Most Listened rankings and plays a selected song', async () => {
     recordPlay(
       { id: 'x', title: 'Ranked Song', artist: 'Ranked Artist', album: '', albumArt: '', durationMs: 0 },
+      'amazon',
       Date.now()
     );
     render(<App />);
@@ -217,5 +264,164 @@ describe('App', () => {
       mediaSessionActions.seekto({ seekTime: 5 });
     });
     expect(screen.getByTestId('app-version')).toBeInTheDocument();
+  });
+
+  it('awards an Amazon-sourced play after 30s of real desktop playback', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(0);
+    try {
+      render(<App />);
+      await act(async () => {
+        bridgeBridge.onConnectionChange('connected');
+      });
+      await act(async () => {
+        bridgeBridge.onNowPlaying(nowPlaying({ title: 'Espresso', artist: 'Sabrina Carpenter' }));
+      });
+
+      for (let i = 1; i <= 31; i += 1) {
+        vi.setSystemTime(i * 1000);
+        runFrame();
+      }
+
+      expect(vi.mocked(recordPlay)).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Espresso', artist: 'Sabrina Carpenter' }),
+        'amazon',
+        expect.any(Number)
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not count a non-Amazon desktop session, even after 30s', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(0);
+    try {
+      render(<App />);
+      await act(async () => {
+        bridgeBridge.onConnectionChange('connected');
+      });
+      await act(async () => {
+        bridgeBridge.onNowPlaying(
+          nowPlaying({ title: 'Espresso', artist: 'Sabrina Carpenter', appId: 'Spotify.exe', isAmazon: false })
+        );
+      });
+
+      for (let i = 1; i <= 31; i += 1) {
+        vi.setSystemTime(i * 1000);
+        runFrame();
+      }
+
+      expect(vi.mocked(recordPlay)).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('never lets a slow stale response overwrite the current track', async () => {
+    let resolveA: (value: LyricsData) => void = () => {};
+    vi.mocked(fetchLyrics).mockImplementationOnce(
+      () =>
+        new Promise<LyricsData>((resolve) => {
+          resolveA = resolve;
+        })
+    );
+
+    render(<App />);
+    await act(async () => {
+      bridgeBridge.onConnectionChange('connected');
+    });
+    await act(async () => {
+      bridgeBridge.onNowPlaying(nowPlaying({ title: 'Race A', artist: 'Artist A' }));
+    });
+    await act(async () => {
+      bridgeBridge.onNowPlaying(nowPlaying({ title: 'Race B', artist: 'Artist B' }));
+    });
+    expect(await screen.findByText('Race B opening')).toBeInTheDocument();
+
+    await act(async () => {
+      resolveA({
+        songId: 'a',
+        title: 'Race A',
+        artist: 'Artist A',
+        album: '',
+        albumArt: '',
+        provider: 'Genius',
+        syncedLyrics: [{ id: 'x', startTimeMs: 0, text: 'Race A opening' }],
+        plainLyrics: 'Race A opening',
+        annotations: [],
+        trivia: [],
+      });
+    });
+
+    expect(screen.getByText('Race B opening')).toBeInTheDocument();
+    expect(screen.queryByText('Race A opening')).not.toBeInTheDocument();
+  });
+
+  it('rejects a placeholder title and keeps the last good track', async () => {
+    render(<App />);
+    await act(async () => {
+      bridgeBridge.onConnectionChange('connected');
+    });
+    await act(async () => {
+      bridgeBridge.onNowPlaying(nowPlaying({ title: 'Rasa', artist: 'oktobernatt' }));
+    });
+    await screen.findByText('Rasa opening');
+
+    vi.mocked(fetchLyrics).mockClear();
+    await act(async () => {
+      bridgeBridge.onNowPlaying(
+        nowPlaying({ title: 'Artist name', artist: 'oktobernatt', positionMs: 1000 })
+      );
+    });
+
+    const banner = screen.getByRole('banner');
+    expect(within(banner).getByText('Rasa')).toBeInTheDocument();
+    expect(screen.queryByText('Artist name')).not.toBeInTheDocument();
+    expect(vi.mocked(fetchLyrics)).not.toHaveBeenCalled();
+  });
+
+  it('applies a manual correction, re-searches without cache, persists and reverts', async () => {
+    render(<App />);
+    await act(async () => {
+      bridgeBridge.onConnectionChange('connected');
+    });
+    await act(async () => {
+      bridgeBridge.onNowPlaying(nowPlaying({ title: 'Wrong Title', artist: 'Real Artist' }));
+    });
+    await screen.findByText('Wrong Title opening');
+    vi.mocked(fetchLyrics).mockClear();
+
+    fireEvent.click(screen.getByLabelText('Fix song or artist name'));
+    fireEvent.change(screen.getByLabelText('Song name'), { target: { value: 'Correct Title' } });
+    fireEvent.click(screen.getByText('Search again'));
+
+    expect(within(screen.getByRole('banner')).getByText('Correct Title')).toBeInTheDocument();
+    expect(vi.mocked(fetchLyrics)).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Correct Title', artist: 'Real Artist' }),
+      expect.objectContaining({ useCache: false })
+    );
+    expect(localStorage.getItem(OVERRIDES_KEY)).toContain('Correct Title');
+    expect(localStorage.getItem(OVERRIDES_KEY)).toContain(trackKey('Wrong Title', 'Real Artist'));
+
+    // The same detected track re-report resolves through the override, no refetch.
+    vi.mocked(fetchLyrics).mockClear();
+    await act(async () => {
+      bridgeBridge.onNowPlaying(
+        nowPlaying({ title: 'Wrong Title', artist: 'Real Artist', positionMs: 2000 })
+      );
+    });
+    expect(within(screen.getByRole('banner')).getByText('Correct Title')).toBeInTheDocument();
+    expect(vi.mocked(fetchLyrics)).not.toHaveBeenCalled();
+
+    // Revert restores the detected metadata and re-searches without cache.
+    fireEvent.click(screen.getByLabelText('Fix song or artist name'));
+    fireEvent.click(screen.getByText('Revert'));
+    expect(within(screen.getByRole('banner')).getByText('Wrong Title')).toBeInTheDocument();
+    expect(vi.mocked(fetchLyrics)).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Wrong Title' }),
+      expect.objectContaining({ useCache: false })
+    );
+    expect(localStorage.getItem(OVERRIDES_KEY)).not.toContain('Correct Title');
   });
 });

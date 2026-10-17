@@ -74,6 +74,9 @@ mod tests {
                 duration_ms: Some(1000),
                 position_ms: Some(0),
                 is_playing: playing,
+                app_id: None,
+                is_amazon: false,
+                album_art: None,
             },
         }
     }

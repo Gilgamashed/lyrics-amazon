@@ -1,7 +1,7 @@
 import { Song } from '../../types/lyrics';
 import { httpFetch } from '../httpClient';
 import { parseLrc } from '../lrcParser';
-import { normalize } from './base';
+import { normalize, withTimeoutSignal } from './base';
 import { LyricsProviderResult } from './types';
 
 interface LrcLibTrack {
@@ -78,9 +78,12 @@ function pickBest(tracks: LrcLibTrack[], song: Song, duration: number): LrcLibTr
   return tracks.find((t) => t.syncedLyrics) ?? tracks[0] ?? null;
 }
 
-export async function fetchLrcLib(song: Song, timeoutMs = 4000): Promise<LyricsProviderResult> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+export async function fetchLrcLib(
+  song: Song,
+  timeoutMs = 4000,
+  externalSignal?: AbortSignal
+): Promise<LyricsProviderResult> {
+  const { signal, cleanup } = withTimeoutSignal(timeoutMs, externalSignal);
   const empty: LyricsProviderResult = { hasSync: false, provider: 'LRCLIB' };
   try {
     const duration = Math.round(song.durationMs / 1000);
@@ -88,12 +91,12 @@ export async function fetchLrcLib(song: Song, timeoutMs = 4000): Promise<LyricsP
       song.title
     )}&artist_name=${encodeURIComponent(song.artist)}&duration=${duration}`;
 
-    const getRes = await requestWithRetry(getUrl, controller.signal);
+    const getRes = await requestWithRetry(getUrl, signal);
     if (getRes.ok) {
       const data = (await getRes.json()) as LrcLibTrack;
       const direct = toResult(data);
       if (direct) {
-        clearTimeout(timeoutId);
+        cleanup();
         return direct;
       }
     }
@@ -101,8 +104,8 @@ export async function fetchLrcLib(song: Song, timeoutMs = 4000): Promise<LyricsP
     const searchUrl = `https://lrclib.net/api/search?q=${encodeURIComponent(
       `${song.title} ${song.artist}`
     )}`;
-    const searchRes = await requestWithRetry(searchUrl, controller.signal);
-    clearTimeout(timeoutId);
+    const searchRes = await requestWithRetry(searchUrl, signal);
+    cleanup();
     if (!searchRes.ok) return empty;
 
     const list = (await searchRes.json()) as LrcLibTrack[];
@@ -111,7 +114,7 @@ export async function fetchLrcLib(song: Song, timeoutMs = 4000): Promise<LyricsP
     const best = pickBest(list, song, duration);
     return (best && toResult(best)) ?? empty;
   } catch {
-    clearTimeout(timeoutId);
+    cleanup();
     return empty;
   }
 }

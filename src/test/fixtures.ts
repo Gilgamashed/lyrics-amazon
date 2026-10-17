@@ -28,6 +28,9 @@ export const NOW_PLAYING: NowPlaying = {
   durationMs: 180_000,
   positionMs: 0,
   isPlaying: true,
+  appId: 'AmazonMusic.exe',
+  isAmazon: true,
+  albumArt: null,
 };
 
 export function makeNowPlaying(overrides: Partial<NowPlaying> = {}): NowPlaying {

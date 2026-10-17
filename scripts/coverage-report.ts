@@ -37,6 +37,10 @@ const CRITICAL_FILES = [
   'src/services/providers/lrclib.ts',
   'src/services/lyricsService.ts',
   'src/services/playHistoryStore.ts',
+  'src/services/playbackClock.ts',
+  'src/services/latestRequest.ts',
+  'src/services/metaOverrideStore.ts',
+  'src/services/metadataSanitizer.ts',
 ];
 
 const RUST_EXCLUDES = [/[/\\]src-tauri[/\\]src[/\\]main\.rs$/, /[/\\]src-tauri[/\\]build\.rs$/, /[/\\]src-tauri[/\\]gen[/\\]/];

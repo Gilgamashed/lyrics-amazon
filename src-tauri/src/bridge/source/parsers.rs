@@ -50,6 +50,9 @@ pub fn parse_nowplaying_cli_json(source: &str, input: &[u8]) -> Option<NowPlayin
         position_ms: number_field(&raw, "kMRMediaRemoteNowPlayingInfoElapsedTime")
             .map(seconds_to_ms),
         is_playing: playback_rate > 0.0,
+        app_id: None,
+        is_amazon: false,
+        album_art: None,
     })
 }
 
@@ -76,6 +79,9 @@ pub fn parse_playerctl_metadata(source: &str, text: &str) -> Option<NowPlaying> 
         duration_ms,
         position_ms,
         is_playing,
+        app_id: None,
+        is_amazon: false,
+        album_art: None,
     })
 }
 

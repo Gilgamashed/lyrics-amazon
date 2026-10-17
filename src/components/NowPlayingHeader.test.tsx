@@ -66,4 +66,75 @@ describe('NowPlayingHeader', () => {
     renderHeader({ isLoading: true, optionsMenu: <span>menu-slot</span> });
     expect(screen.getByText('menu-slot')).toBeInTheDocument();
   });
+
+  it('surfaces the detected app id in the desktop chip tooltip', () => {
+    renderHeader({ detectionSource: 'desktop', appId: 'AmazonMusic.exe' });
+    expect(screen.getByTestId('detection-chip')).toHaveAttribute(
+      'title',
+      'Detecting playback from the native desktop bridge (Amazon Music app) · app id: AmazonMusic.exe'
+    );
+  });
+
+  it('omits the app id when none is reported', () => {
+    renderHeader({ detectionSource: 'desktop', appId: null });
+    expect(screen.getByTestId('detection-chip')).toHaveAttribute(
+      'title',
+      'Detecting playback from the native desktop bridge (Amazon Music app)'
+    );
+  });
+
+  it('hides the fix control unless the desktop bridge can edit metadata', () => {
+    renderHeader();
+    expect(screen.queryByLabelText('Fix song or artist name')).not.toBeInTheDocument();
+  });
+
+  it('opens the correction dialog pre-filled and applies a correction', () => {
+    const onEditMetadata = vi.fn();
+    renderHeader({
+      detectionSource: 'desktop',
+      onEditMetadata,
+      song: makeSong({ title: 'Artist name', artist: 'oktobernatt' }),
+    });
+
+    fireEvent.click(screen.getByLabelText('Fix song or artist name'));
+    const titleInput = screen.getByLabelText('Song name') as HTMLInputElement;
+    const artistInput = screen.getByLabelText('Artist') as HTMLInputElement;
+    expect(titleInput.value).toBe('Artist name');
+    expect(artistInput.value).toBe('oktobernatt');
+
+    fireEvent.change(titleInput, { target: { value: 'Rasa' } });
+    fireEvent.click(screen.getByText('Search again'));
+
+    expect(onEditMetadata).toHaveBeenCalledWith('Rasa', 'oktobernatt');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('disables apply for a blank title and cancels the dialog', () => {
+    const onEditMetadata = vi.fn();
+    renderHeader({ detectionSource: 'desktop', onEditMetadata });
+
+    fireEvent.click(screen.getByLabelText('Fix song or artist name'));
+    fireEvent.change(screen.getByLabelText('Song name'), { target: { value: '   ' } });
+    expect(screen.getByText('Search again')).toBeDisabled();
+
+    fireEvent.click(screen.getByText('Cancel'));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(onEditMetadata).not.toHaveBeenCalled();
+  });
+
+  it('shows revert only when an override exists and invokes it', () => {
+    const onRevertOverride = vi.fn();
+    renderHeader({ detectionSource: 'desktop', onEditMetadata: vi.fn(), hasOverride: true, onRevertOverride });
+
+    fireEvent.click(screen.getByLabelText('Fix song or artist name'));
+    fireEvent.click(screen.getByText('Revert'));
+    expect(onRevertOverride).toHaveBeenCalledOnce();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('does not render revert without an override', () => {
+    renderHeader({ detectionSource: 'desktop', onEditMetadata: vi.fn(), hasOverride: false });
+    fireEvent.click(screen.getByLabelText('Fix song or artist name'));
+    expect(screen.queryByText('Revert')).not.toBeInTheDocument();
+  });
 });

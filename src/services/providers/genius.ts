@@ -1,6 +1,6 @@
 import { Song } from '../../types/lyrics';
 import { httpFetch } from '../httpClient';
-import { normalize } from './base';
+import { normalize, withTimeoutSignal } from './base';
 import { LyricsProviderResult } from './types';
 
 interface GeniusHit {
@@ -127,23 +127,26 @@ function collectHits(payload: GeniusSearchResponse): GeniusHit[] {
   return response.hits ?? [];
 }
 
-export async function fetchGenius(song: Song, timeoutMs = 4000): Promise<LyricsProviderResult> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+export async function fetchGenius(
+  song: Song,
+  timeoutMs = 4000,
+  externalSignal?: AbortSignal
+): Promise<LyricsProviderResult> {
+  const { signal, cleanup } = withTimeoutSignal(timeoutMs, externalSignal);
   const empty: LyricsProviderResult = { hasSync: false, provider: 'Genius' };
   try {
     const q = encodeURIComponent(`${song.title} ${song.artist}`);
     const searchRes = await httpFetch(`https://genius.com/api/search/song?q=${q}`, {
-      signal: controller.signal,
+      signal,
     });
     if (!searchRes.ok) {
-      clearTimeout(timeoutId);
+      cleanup();
       return empty;
     }
     const searchJson = (await searchRes.json()) as GeniusSearchResponse;
     const hits = collectHits(searchJson);
     if (!hits.length) {
-      clearTimeout(timeoutId);
+      cleanup();
       return empty;
     }
     const normTitle = normalize(song.title);
@@ -163,11 +166,11 @@ export async function fetchGenius(song: Song, timeoutMs = 4000): Promise<LyricsP
     }
     const path = best.result?.path;
     if (!path) {
-      clearTimeout(timeoutId);
+      cleanup();
       return empty;
     }
-    const pageRes = await httpFetch(`https://genius.com${path}`, { signal: controller.signal });
-    clearTimeout(timeoutId);
+    const pageRes = await httpFetch(`https://genius.com${path}`, { signal });
+    cleanup();
     if (!pageRes.ok) return empty;
     const html = await pageRes.text();
     const lyrics = extractLyricsFromHtml(html);
@@ -179,7 +182,7 @@ export async function fetchGenius(song: Song, timeoutMs = 4000): Promise<LyricsP
       provider: 'Genius',
     };
   } catch {
-    clearTimeout(timeoutId);
+    cleanup();
     return empty;
   }
 }

@@ -34,3 +34,33 @@ export function extractPlain(text: string): string {
 export function linesToPlain(lines: LyricLine[]): string {
   return lines.map((l) => l.text).join('\n');
 }
+
+export interface LinkedSignal {
+  signal: AbortSignal;
+  cleanup: () => void;
+}
+
+/**
+ * Builds an abort signal that fires on a per-request timeout, an external abort
+ * (e.g. a superseded lyrics load), or either. `cleanup` must be called exactly
+ * once to clear the timer and detach the external listener.
+ */
+export function withTimeoutSignal(timeoutMs: number, external?: AbortSignal): LinkedSignal {
+  const controller = new AbortController();
+  const onAbort = () => controller.abort();
+
+  if (external) {
+    if (external.aborted) controller.abort();
+    else external.addEventListener('abort', onAbort);
+  }
+
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timeoutId);
+      external?.removeEventListener('abort', onAbort);
+    },
+  };
+}

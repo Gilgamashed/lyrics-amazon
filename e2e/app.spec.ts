@@ -62,4 +62,18 @@ test.describe('Web UI against the native bridge', () => {
     await expect(header(page)).toContainText('Unknown Artist');
     await expect(page.getByText(/^Provider:/)).toBeVisible();
   });
+
+  test('shows the real album art and the detected app id for the scripted track', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    // Every scripted step carries album art, so the lockup image renders
+    // regardless of which track is active when the page loads.
+    await expect(trackTitle(page)).toBeVisible({ timeout: 20_000 });
+    await expect(header(page).locator('img')).toBeVisible();
+    await expect(page.getByTestId('detection-chip')).toHaveAttribute(
+      'title',
+      /app id: AmazonMusic\.exe/
+    );
+  });
 });

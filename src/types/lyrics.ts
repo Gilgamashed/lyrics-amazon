@@ -110,4 +110,7 @@ export interface NowPlaying {
   durationMs: number | null;
   positionMs: number | null;
   isPlaying: boolean;
+  appId: string | null;
+  isAmazon: boolean;
+  albumArt: string | null;
 }

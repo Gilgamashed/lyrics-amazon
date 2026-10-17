@@ -21,9 +21,9 @@ describe('MostListenedPanel', () => {
 
   it('lists ranked songs with their play counts', () => {
     const now = Date.now();
-    recordPlay({ id: '1', title: 'Song A', artist: 'Artist A', album: '', albumArt: '', durationMs: 0 }, now - 1000);
-    recordPlay({ id: '2', title: 'Song B', artist: 'Artist B', album: '', albumArt: '', durationMs: 0 }, now - 900);
-    recordPlay({ id: '2', title: 'Song B', artist: 'Artist B', album: '', albumArt: '', durationMs: 0 }, now - 800);
+    recordPlay({ id: '1', title: 'Song A', artist: 'Artist A', album: '', albumArt: '', durationMs: 0 }, 'amazon', now - 1000);
+    recordPlay({ id: '2', title: 'Song B', artist: 'Artist B', album: '', albumArt: '', durationMs: 0 }, 'amazon', now - 900);
+    recordPlay({ id: '2', title: 'Song B', artist: 'Artist B', album: '', albumArt: '', durationMs: 0 }, 'amazon', now - 800);
 
     renderPanel();
     expect(screen.getByText('Song A')).toBeInTheDocument();
@@ -33,7 +33,7 @@ describe('MostListenedPanel', () => {
   });
 
   it('switches ranking periods', () => {
-    recordPlay({ id: '1', title: 'Song A', artist: 'Artist A', album: '', albumArt: '', durationMs: 0 });
+    recordPlay({ id: '1', title: 'Song A', artist: 'Artist A', album: '', albumArt: '', durationMs: 0 }, 'amazon');
     renderPanel();
 
     fireEvent.click(screen.getByRole('button', { name: 'Lifetime' }));
@@ -43,7 +43,7 @@ describe('MostListenedPanel', () => {
   });
 
   it('selects a song to display its lyrics', () => {
-    recordPlay({ id: '1', title: 'Song A', artist: 'Artist A', album: 'Al', albumArt: '', durationMs: 0 });
+    recordPlay({ id: '1', title: 'Song A', artist: 'Artist A', album: 'Al', albumArt: '', durationMs: 0 }, 'amazon');
     const { onSelectSong } = renderPanel();
 
     fireEvent.click(screen.getByText('Song A'));
@@ -53,7 +53,7 @@ describe('MostListenedPanel', () => {
   });
 
   it('resets the history from the panel', () => {
-    recordPlay({ id: '1', title: 'Song A', artist: 'Artist A', album: '', albumArt: '', durationMs: 0 });
+    recordPlay({ id: '1', title: 'Song A', artist: 'Artist A', album: '', albumArt: '', durationMs: 0 }, 'amazon');
     renderPanel();
     expect(screen.getByText('Song A')).toBeInTheDocument();
 

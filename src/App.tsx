@@ -15,6 +15,14 @@ import { createBridgeClient, BridgeConnectionState } from './services/bridgeServ
 import { loadSettings, saveSettings } from './services/settingsStore';
 import { PlaySessionScorer, recordPlay, resetHistory } from './services/playHistoryStore';
 import { layoutWidthFor } from './services/layoutPresets';
+import {
+  nextClockPositionMs,
+  resolveDuration,
+  ClockAnchor,
+} from './services/playbackClock';
+import { sanitizeMetadata, SanitizedMetadata } from './services/metadataSanitizer';
+import { getOverride, setOverride, removeOverride, trackKey } from './services/metaOverrideStore';
+import { LatestRequest } from './services/latestRequest';
 import { NowPlayingHeader } from './components/NowPlayingHeader';
 import { LyricsPanel } from './components/LyricsPanel';
 import { MostListenedPanel } from './components/MostListenedPanel';
@@ -53,33 +61,25 @@ const IDLE_SONG: Song = {
   durationMs: 0,
 };
 
-function resolveDesktopSong(nowPlaying: NowPlaying): Song {
-  const title = nowPlaying.title?.trim() || 'Unknown Track';
-  const artist = nowPlaying.artist?.trim() || 'Unknown Artist';
+function resolveDesktopSong(nowPlaying: NowPlaying, metadata: SanitizedMetadata): Song {
+  const { title, artist } = metadata;
   const slug = (value: string) =>
     value
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/(^-|-$)/g, '');
+  const { durationMs } = resolveDuration(nowPlaying.durationMs);
 
   return {
     id: `desktop-${slug(title)}-${slug(artist)}`,
     title,
     artist,
     album: nowPlaying.album?.trim() || 'Amazon Music',
-    albumArt: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300&h=300&fit=crop',
-    durationMs:
-      nowPlaying.durationMs && nowPlaying.durationMs > 0 ? nowPlaying.durationMs : 180000,
+    albumArt: nowPlaying.albumArt ?? '',
+    durationMs,
     amazonMusicUrl: `https://music.amazon.com/search/${encodeURIComponent(`${title} ${artist}`)}`,
     genre: 'Now Playing (Desktop)',
   };
-}
-
-interface ClockAnchor {
-  positionMs: number;
-  atMs: number;
-  playing: boolean;
-  durationMs: number;
 }
 
 export default function App() {
@@ -88,6 +88,7 @@ export default function App() {
   const [isLoadingLyrics, setIsLoadingLyrics] = useState(false);
   const [feedbackState, setFeedbackState] = useState<FeedbackState>('none');
   const lastProviderIndexRef = useRef(0);
+  const latestRequestRef = useRef(new LatestRequest());
 
   // Session-only AI fallback config (used silently; no longer surfaced in the UI)
   const [aiConfig] = useState(() => resolveAIConfig());
@@ -114,9 +115,11 @@ export default function App() {
     atMs: Date.now(),
     playing: false,
     durationMs: 0,
+    durationAuthoritative: false,
   });
   const currentSongRef = useRef<Song>(IDLE_SONG);
   const detectionRef = useRef<DetectionSource>('browser');
+  const isAmazonRef = useRef(false);
   const scorerRef = useRef<PlaySessionScorer>(new PlaySessionScorer());
 
   useEffect(() => {
@@ -124,8 +127,8 @@ export default function App() {
   }, [currentSong]);
 
   const applySnapshot = useCallback(
-    (positionMs: number, playing: boolean, durationMs: number) => {
-      anchorRef.current = { positionMs, atMs: Date.now(), playing, durationMs };
+    (positionMs: number, playing: boolean, durationMs: number, durationAuthoritative: boolean) => {
+      anchorRef.current = { positionMs, atMs: Date.now(), playing, durationMs, durationAuthoritative };
       setCurrentTimeMs(positionMs);
     },
     []
@@ -152,14 +155,13 @@ export default function App() {
     const tick = () => {
       const anchor = anchorRef.current;
       if (anchor.playing) {
-        let next = anchor.positionMs + (Date.now() - anchor.atMs);
-        if (anchor.durationMs > 0 && next > anchor.durationMs) next = anchor.durationMs;
+        const next = nextClockPositionMs(anchor, Date.now());
         setCurrentTimeMs(next);
 
-        // Award a play only for real native playback (desktop) after >= 30s.
-        if (detectionRef.current === 'desktop') {
+        // Award a play only for real Amazon playback (desktop) after >= 30s.
+        if (detectionRef.current === 'desktop' && isAmazonRef.current) {
           if (scorerRef.current.addPosition(next)) {
-            recordPlay(currentSongRef.current, Date.now());
+            recordPlay(currentSongRef.current, 'amazon', Date.now());
           }
         }
       }
@@ -171,7 +173,10 @@ export default function App() {
 
   // Native companion bridge (desktop app detection)
   const [bridgeStatus, setBridgeStatus] = useState<BridgeConnectionState>('connecting');
+  const [detectedAppId, setDetectedAppId] = useState<string | null>(null);
+  const [hasOverride, setHasOverride] = useState(false);
   const lastDesktopTrackKeyRef = useRef<string | null>(null);
+  const lastNowPlayingRef = useRef<NowPlaying | null>(null);
   const desktopHandlerRef = useRef<(nowPlaying: NowPlaying) => void>(() => {});
 
   const detectionSource: DetectionSource = bridgeStatus === 'connected' ? 'desktop' : 'browser';
@@ -184,12 +189,20 @@ export default function App() {
   }, []);
 
   // Load lyrics for a song, applying the sync-mode rule (synced → Karaoke,
-  // plain-only → Full Sheet).
+  // plain-only → Full Sheet). Latest-wins: a superseded request may not apply
+  // its result or clear the loading flag.
   const loadLyrics = useCallback(
     async (song: Song, config: typeof aiConfig, useCache = true, startFromIndex = 0) => {
+      const { id, signal } = latestRequestRef.current.start();
       setIsLoadingLyrics(true);
       try {
-        const data = await fetchLyrics(song, { useCache, aiConfig: config, startFromIndex });
+        const data = await fetchLyrics(song, {
+          useCache,
+          aiConfig: config,
+          startFromIndex,
+          signal,
+        });
+        if (!latestRequestRef.current.isCurrent(id)) return;
         if (data) {
           lastProviderIndexRef.current = providerIndexFor(data.provider);
           setLyricsData(data);
@@ -198,11 +211,13 @@ export default function App() {
           setLyricsData(emptyLyricsData(song));
         }
       } finally {
-        setIsLoadingLyrics(false);
+        if (latestRequestRef.current.isCurrent(id)) setIsLoadingLyrics(false);
       }
     },
     [applyAutoViewMode]
   );
+
+  useEffect(() => () => latestRequestRef.current.cancel(), []);
 
   const handleThumbsUp = useCallback(() => {
     if (lyricsData.syncedLyrics.length === 0 && !lyricsData.plainLyrics.trim()) return;
@@ -220,10 +235,12 @@ export default function App() {
     (song: Song) => {
       setCurrentSong(song);
       setShowHistory(false);
+      setHasOverride(false);
       lastProviderIndexRef.current = 0;
       setFeedbackState('none');
       scorerRef.current.reset();
-      applySnapshot(0, detectionRef.current === 'browser', song.durationMs);
+      setLyricsData(emptyLyricsData(song));
+      applySnapshot(0, detectionRef.current === 'browser', song.durationMs, false);
       void loadLyrics(song, aiConfig);
     },
     [aiConfig, applySnapshot, loadLyrics]
@@ -234,33 +251,82 @@ export default function App() {
     setHistoryVersion((prev) => prev + 1);
   }, []);
 
+  // Re-resolve the current track from a corrected metadata pair and re-run the
+  // provider lookup, deliberately ignoring the cache.
+  const applyMetadata = useCallback(
+    (metadata: SanitizedMetadata) => {
+      const raw = lastNowPlayingRef.current;
+      if (!raw) return;
+      const song = resolveDesktopSong(raw, metadata);
+      setCurrentSong(song);
+      lastProviderIndexRef.current = 0;
+      setFeedbackState('none');
+      scorerRef.current.reset();
+      setLyricsData(emptyLyricsData(song));
+      void loadLyrics(song, aiConfig, false);
+    },
+    [aiConfig, loadLyrics]
+  );
+
+  const handleApplyOverride = useCallback(
+    (title: string, artist: string) => {
+      const key = lastDesktopTrackKeyRef.current;
+      if (!key) return;
+      setOverride(key, { title, artist });
+      setHasOverride(true);
+      applyMetadata({ title, artist });
+    },
+    [applyMetadata]
+  );
+
+  const handleRevertOverride = useCallback(() => {
+    const key = lastDesktopTrackKeyRef.current;
+    if (!key) return;
+    removeOverride(key);
+    setHasOverride(false);
+    const raw = lastNowPlayingRef.current;
+    if (!raw) return;
+    const metadata = sanitizeMetadata(raw.title, raw.artist);
+    if (metadata) applyMetadata(metadata);
+  }, [applyMetadata]);
+
   // Keep the desktop bridge handler bound to the latest config without reconnecting
   useEffect(() => {
     desktopHandlerRef.current = (nowPlaying: NowPlaying) => {
+      lastNowPlayingRef.current = nowPlaying;
+      isAmazonRef.current = Boolean(nowPlaying.isAmazon);
+      setDetectedAppId(nowPlaying.appId ?? null);
+
       const playing = nowPlaying.isPlaying;
       const positionMs = typeof nowPlaying.positionMs === 'number' ? nowPlaying.positionMs : 0;
-      const durationMs = nowPlaying.durationMs && nowPlaying.durationMs > 0 ? nowPlaying.durationMs : 0;
+      const { durationMs, durationAuthoritative } = resolveDuration(nowPlaying.durationMs);
 
-      const title = nowPlaying.title?.trim();
-      if (!playing || !title) {
-        applySnapshot(positionMs, playing, durationMs);
+      const metadata = sanitizeMetadata(nowPlaying.title, nowPlaying.artist);
+      if (!playing || !metadata) {
+        // Not-ready reading: keep the last good track, just advance the clock.
+        applySnapshot(positionMs, playing, durationMs, durationAuthoritative);
         return;
       }
 
-      const key = `${title.toLowerCase()}|${(nowPlaying.artist ?? '').trim().toLowerCase()}`;
-      if (key !== lastDesktopTrackKeyRef.current) {
-        lastDesktopTrackKeyRef.current = key;
-        const song = resolveDesktopSong(nowPlaying);
+      const detectedKey = trackKey(metadata.title, metadata.artist);
+      if (detectedKey !== lastDesktopTrackKeyRef.current) {
+        lastDesktopTrackKeyRef.current = detectedKey;
+        const override = getOverride(detectedKey);
+        setHasOverride(Boolean(override));
+        const song = resolveDesktopSong(nowPlaying, override ?? metadata);
         setCurrentSong(song);
         lastProviderIndexRef.current = 0;
         setFeedbackState('none');
         scorerRef.current.reset();
-        applySnapshot(positionMs, playing, song.durationMs);
+        // Clear to the new song's empty state before fetching so the loading
+        // state is visible and no stale lyric can render.
+        setLyricsData(emptyLyricsData(song));
+        applySnapshot(positionMs, playing, durationMs, durationAuthoritative);
         void loadLyrics(song, aiConfig);
         return;
       }
 
-      applySnapshot(positionMs, playing, durationMs);
+      applySnapshot(positionMs, playing, durationMs, durationAuthoritative);
     };
   });
 
@@ -282,7 +348,9 @@ export default function App() {
           title: currentSong.title,
           artist: currentSong.artist,
           album: currentSong.album,
-          artwork: [{ src: currentSong.albumArt, sizes: '300x300', type: 'image/jpeg' }],
+          artwork: currentSong.albumArt
+            ? [{ src: currentSong.albumArt, sizes: '300x300', type: 'image/jpeg' }]
+            : [],
         });
         navigator.mediaSession.setActionHandler('play', () => setPlayingState(true));
         navigator.mediaSession.setActionHandler('pause', () => setPlayingState(false));
@@ -306,6 +374,10 @@ export default function App() {
           isLoading={isLoadingLyrics}
           historyActive={showHistory}
           onToggleHistory={() => setShowHistory((prev) => !prev)}
+          appId={detectedAppId}
+          hasOverride={hasOverride}
+          onEditMetadata={handleApplyOverride}
+          onRevertOverride={handleRevertOverride}
           optionsMenu={
             <OptionsMenu
               settings={settings}

@@ -315,6 +315,9 @@ mod tests {
             duration_ms: Some(180_000),
             position_ms: Some(30_000),
             is_playing: playing,
+            app_id: Some("AmazonMusic.exe".to_string()),
+            is_amazon: true,
+            album_art: None,
         }
     }
 

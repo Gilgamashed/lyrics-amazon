@@ -11,6 +11,7 @@ export interface FetchLyricsOptions {
   useCache?: boolean;
   aiConfig?: AIConfig;
   startFromIndex?: number;
+  signal?: AbortSignal;
 }
 
 /**
@@ -31,7 +32,7 @@ export async function fetchLyrics(
     if (cached) return cached;
   }
 
-  const data = await fetchLyricsUncached(song, options?.aiConfig, startFromIndex);
+  const data = await fetchLyricsUncached(song, options?.aiConfig, startFromIndex, options?.signal);
 
   if (useCache && data) {
     setCachedLyrics(song, data);
@@ -47,7 +48,8 @@ export async function fetchLyrics(
 async function fetchLyricsUncached(
   song: Song,
   aiConfig?: AIConfig,
-  startFromIndex = 0
+  startFromIndex = 0,
+  signal?: AbortSignal
 ): Promise<LyricsData | null> {
   // User-accepted lyrics take top priority on a fresh lookup (thumbs up override)
   if (startFromIndex === 0) {
@@ -56,7 +58,7 @@ async function fetchLyricsUncached(
   }
 
   // Ordered provider chain before any AI fallback
-  const chain = await runProviderChain(song, startFromIndex);
+  const chain = await runProviderChain(song, startFromIndex, undefined, undefined, signal);
   if (chain.result) {
     return buildLyricsFromProvider(song, chain.result);
   }

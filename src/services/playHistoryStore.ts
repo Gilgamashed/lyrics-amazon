@@ -13,6 +13,9 @@ export const HOT_WINDOW_MS = 5 * 24 * 60 * 60 * 1000;
 
 export type RankingPeriod = 'hot' | 'month' | 'lifetime';
 
+/** Which app produced a play. Only `amazon` counts toward Most Listened. */
+export type PlaySource = 'amazon' | 'other';
+
 export interface PlayRecord {
   key: string;
   title: string;
@@ -22,6 +25,8 @@ export interface PlayRecord {
   plays: number[];
   firstSeenAt: number;
   lastSeenAt: number;
+  /** Absent on legacy records written before Amazon-scoped accounting. */
+  source?: PlaySource;
 }
 
 export interface RankedSong {
@@ -70,10 +75,11 @@ function writeStore(store: StoreMap): void {
 }
 
 /**
- * Records a scored play for a song at `at` (defaults to now). Idempotency for
- * the ≥30s rule lives in `PlaySessionScorer`; this is the durable write.
+ * Records a scored play for a song at `at` (defaults to now), tagged with the
+ * owning `source`. Idempotency for the ≥30s rule lives in `PlaySessionScorer`;
+ * this is the durable write. Only `amazon` plays are ranked.
  */
-export function recordPlay(song: Song, at: number = Date.now()): void {
+export function recordPlay(song: Song, source: PlaySource, at: number = Date.now()): void {
   const store = readStore();
   const key = songKey(song);
   const existing = store[key];
@@ -91,6 +97,7 @@ export function recordPlay(song: Song, at: number = Date.now()): void {
   entry.artist = song.artist;
   entry.album = song.album;
   entry.albumArt = song.albumArt;
+  entry.source = source;
   entry.plays.push(at);
   entry.lastSeenAt = at;
   store[key] = entry;
@@ -118,6 +125,8 @@ export function getRanking(period: RankingPeriod, now: number = Date.now()): Ran
   const ranked: RankedSong[] = [];
 
   for (const record of Object.values(readStore())) {
+    // Amazon-only accounting: non-Amazon and legacy (unflagged) records are excluded.
+    if (record.source !== 'amazon') continue;
     const count = record.plays.filter(filter).length;
     if (count === 0) continue;
     const lastPlayedAt = record.plays.filter(filter).reduce((max, at) => Math.max(max, at), 0);
@@ -136,7 +145,7 @@ export function getRanking(period: RankingPeriod, now: number = Date.now()): Ran
 }
 
 export function getHistoryStats(): { songs: number; plays: number } {
-  const records = Object.values(readStore());
+  const records = Object.values(readStore()).filter((record) => record.source === 'amazon');
   return {
     songs: records.length,
     plays: records.reduce((sum, record) => sum + record.plays.length, 0),
