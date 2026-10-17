@@ -38,7 +38,7 @@ describe('KaraokeLyricsView', () => {
   it('shows the loading state while lyrics are being retrieved', () => {
     renderView({ lyrics: [], isLoading: true });
     expect(screen.getByText('Retrieving synchronized lyrics...')).toBeInTheDocument();
-    expect(screen.getByText('Searching Genius, LRCLIB and other providers')).toBeInTheDocument();
+    expect(screen.getByText('Searching LRCLIB, Lyrica, Genius and other providers')).toBeInTheDocument();
   });
 
   it('shows the not-found state when the chain yields nothing', () => {
@@ -103,10 +103,66 @@ describe('KaraokeLyricsView', () => {
     }
   });
 
-  it('auto-scrolls to the active line when enabled', () => {
-    const spy = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {});
-    renderView({ currentTimeMs: 3500, autoScroll: true });
-    expect(spy).toHaveBeenCalledWith({ behavior: 'smooth', block: 'center' });
-    spy.mockRestore();
+  it('auto-scrolls its own container without moving ancestors when enabled', () => {
+    const scrollTo = vi.fn();
+    Object.defineProperty(Element.prototype, 'scrollTo', {
+      value: scrollTo,
+      configurable: true,
+      writable: true,
+    });
+    const scrollIntoView = vi
+      .spyOn(Element.prototype, 'scrollIntoView')
+      .mockImplementation(() => {});
+
+    const view = (
+      <KaraokeLyricsView
+        lyrics={lyrics}
+        currentTimeMs={0}
+        syncOffsetMs={0}
+        fontSize="medium"
+        autoScroll
+        onSeek={vi.fn()}
+        onSelectAnnotation={vi.fn()}
+        annotations={makeLyrics().annotations}
+      />
+    );
+    const { rerender } = render(view);
+
+    const active = screen.getByText('Second lyric line').closest('div.group') as HTMLElement;
+    const container = active.closest('.custom-scrollbar') as HTMLElement;
+    Object.defineProperty(active, 'offsetTop', { value: 300, configurable: true });
+    Object.defineProperty(active, 'offsetHeight', { value: 40, configurable: true });
+    Object.defineProperty(container, 'clientHeight', { value: 200, configurable: true });
+
+    // Re-render with the active line so the effect runs with layout metrics set.
+    rerender(
+      <KaraokeLyricsView
+        lyrics={lyrics}
+        currentTimeMs={3500}
+        syncOffsetMs={0}
+        fontSize="medium"
+        autoScroll
+        onSeek={vi.fn()}
+        onSelectAnnotation={vi.fn()}
+        annotations={makeLyrics().annotations}
+      />
+    );
+
+    // 300 - 200/2 + 40/2 = 220, applied to the view's own container.
+    expect(scrollTo).toHaveBeenCalledWith({ top: 220, behavior: 'smooth' });
+    expect(scrollIntoView).not.toHaveBeenCalled();
+
+    scrollIntoView.mockRestore();
+  });
+
+  it('does not scroll when auto-scroll is disabled', () => {
+    const scrollTo = vi.fn();
+    Object.defineProperty(Element.prototype, 'scrollTo', {
+      value: scrollTo,
+      configurable: true,
+      writable: true,
+    });
+    renderView({ currentTimeMs: 3500, autoScroll: false });
+    expect(scrollTo).not.toHaveBeenCalled();
   });
 });

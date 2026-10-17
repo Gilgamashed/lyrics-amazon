@@ -76,4 +76,25 @@ test.describe('Web UI against the native bridge', () => {
       /app id: AmazonMusic\.exe/
     );
   });
+
+  test('keeps the panel header and tabs visible at a small viewport', async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 560 });
+    await page.goto('/');
+
+    await expect(trackTitle(page)).toBeVisible({ timeout: 20_000 });
+    // The Karaoke/Full Sheet tabs stay reachable at narrow widths.
+    await expect(page.getByRole('button', { name: /Karaoke/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Full Sheet' })).toBeVisible();
+
+    // Both lyric surfaces own a visible scrollbar container.
+    await expect(page.locator('.custom-scrollbar').first()).toBeVisible();
+
+    // The panel header (with the tabs) stays pinned after scrolling the body.
+    await page.getByRole('button', { name: 'Full Sheet' }).click();
+    const scroller = page.locator('.custom-scrollbar').first();
+    await scroller.evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+    await expect(page.getByRole('button', { name: 'Full Sheet' })).toBeInViewport();
+  });
 });

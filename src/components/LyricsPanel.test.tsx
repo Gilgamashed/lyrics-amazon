@@ -80,4 +80,73 @@ describe('LyricsPanel', () => {
     fireEvent.click(screen.getByRole('checkbox'));
     expect(onUpdateWindowState).toHaveBeenCalledWith({ autoScroll: false });
   });
+
+  const plainOnly = () =>
+    makeLyrics({ syncedLyrics: [], plainLyrics: 'Line one\nLine two', provider: 'Genius' });
+
+  it('hides the AI karaoke banner when synced lyrics are present', () => {
+    renderPanel({ onGenerateKaraoke: vi.fn() });
+    expect(screen.queryByTestId('karaoke-ai-banner')).not.toBeInTheDocument();
+  });
+
+  it('shows a disabled Generate Karaoke button until the endpoint is configured', () => {
+    renderPanel({ lyricsData: plainOnly(), onGenerateKaraoke: vi.fn() });
+    const button = screen.getByTestId('generate-karaoke');
+    expect(button).toBeDisabled();
+    expect(button).toHaveTextContent('Generate Karaoke (AI)');
+  });
+
+  it('invokes generate when configured and clicked', () => {
+    const onGenerateKaraoke = vi.fn();
+    renderPanel({
+      lyricsData: plainOnly(),
+      onGenerateKaraoke,
+      karaokeAIConfigured: true,
+    });
+    fireEvent.click(screen.getByTestId('generate-karaoke'));
+    expect(onGenerateKaraoke).toHaveBeenCalledOnce();
+  });
+
+  it('shows progress and cancels an in-flight generation', () => {
+    const onCancelKaraoke = vi.fn();
+    renderPanel({
+      lyricsData: plainOnly(),
+      onGenerateKaraoke: vi.fn(),
+      onCancelKaraoke,
+      karaokeAIConfigured: true,
+      karaokeAIStatus: 'aligning',
+    });
+    expect(screen.getByTestId('karaoke-ai-progress')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Cancel/ }));
+    expect(onCancelKaraoke).toHaveBeenCalledOnce();
+  });
+
+  it('offers a retry after an error and a saved confirmation', () => {
+    const { rerender } = renderPanel({
+      lyricsData: plainOnly(),
+      onGenerateKaraoke: vi.fn(),
+      karaokeAIConfigured: true,
+      karaokeAIStatus: 'error',
+      karaokeAIMessage: 'Alignment request failed.',
+    });
+    expect(screen.getByText('Alignment request failed.')).toBeInTheDocument();
+    expect(screen.getByTestId('generate-karaoke')).toHaveTextContent('Retry');
+
+    rerender(
+      <LyricsPanel
+        lyricsData={plainOnly()}
+        currentTimeMs={0}
+        syncOffsetMs={0}
+        onOffsetChange={vi.fn()}
+        windowState={makeWindowState()}
+        onUpdateWindowState={vi.fn()}
+        onSeek={vi.fn()}
+        onGenerateKaraoke={vi.fn()}
+        karaokeAIConfigured
+        karaokeAIStatus="done"
+        layoutWidth={680}
+      />
+    );
+    expect(screen.getByText('Karaoke generated')).toBeInTheDocument();
+  });
 });

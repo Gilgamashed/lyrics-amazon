@@ -1,6 +1,7 @@
 import React from 'react';
 import { AppSettings, BackgroundTheme, FontSize, LayoutPresetId, WindowTheme } from '../types/lyrics';
 import { LAYOUT_PRESETS } from '../services/layoutPresets';
+import { KaraokeAIConfig } from '../services/karaokeAIConfigStore';
 import {
   X,
   SlidersHorizontal,
@@ -12,12 +13,15 @@ import {
   Timer,
   RotateCcw,
   Check,
+  Sparkles,
 } from 'lucide-react';
 
 interface OptionsMenuProps {
   settings: AppSettings;
   onChange: (updates: Partial<AppSettings>) => void;
   onResetHistory: () => void;
+  karaokeAIConfig: KaraokeAIConfig;
+  onKaraokeAIConfigChange: (updates: Partial<KaraokeAIConfig>) => void;
 }
 
 const FONT_SIZES: FontSize[] = ['small', 'medium', 'large', 'xlarge'];
@@ -34,10 +38,16 @@ const BACKDROPS: { id: BackgroundTheme; label: string }[] = [
 ];
 /**
  * The single customization surface. Consolidates window layout presets,
- * backdrop theme, appearance (opacity/blur/font/palette) and the default sync
- * offset. The inert AI Options section was removed (deferred).
+ * backdrop theme, appearance (opacity/blur/font/palette), the default sync
+ * offset and the AI karaoke alignment endpoint configuration.
  */
-export const OptionsMenu: React.FC<OptionsMenuProps> = ({ settings, onChange, onResetHistory }) => {
+export const OptionsMenu: React.FC<OptionsMenuProps> = ({
+  settings,
+  onChange,
+  onResetHistory,
+  karaokeAIConfig,
+  onKaraokeAIConfigChange,
+}) => {
   const [isOpen, setOpen] = React.useState(false);
 
   const setWindow = (updates: Partial<AppSettings['window']>) =>
@@ -243,6 +253,53 @@ export const OptionsMenu: React.FC<OptionsMenuProps> = ({ settings, onChange, on
               Current: {settings.syncOffsetMs > 0 ? '+' : ''}
               {(settings.syncOffsetMs / 1000).toFixed(2)}s
             </div>
+          </section>
+
+          {/* Karaoke AI (static -> synced alignment endpoint) */}
+          <section className="mb-4 pt-3 border-t border-slate-800">
+            <span className="text-xs text-slate-300 mb-1.5 flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-cyan-400" /> Karaoke AI
+            </span>
+            <p className="text-[10px] text-slate-500 leading-relaxed mb-2">
+              Turn a provider's unsynced lyrics into timed karaoke. The captured audio is sent
+              only to the alignment endpoint you configure here.
+            </p>
+            <label className="block mb-1.5">
+              <span className="text-[10px] text-slate-400">Alignment endpoint</span>
+              <input
+                type="text"
+                value={karaokeAIConfig.endpointUrl}
+                onChange={(e) => onKaraokeAIConfigChange({ endpointUrl: e.target.value })}
+                placeholder="https://api.openai.com/v1"
+                aria-label="Karaoke AI endpoint"
+                className="mt-0.5 w-full bg-slate-900/60 border border-white/10 rounded-lg px-2 py-1 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-400"
+              />
+            </label>
+            <label className="block mb-1.5">
+              <span className="text-[10px] text-slate-400">Model</span>
+              <input
+                type="text"
+                value={karaokeAIConfig.model}
+                onChange={(e) => onKaraokeAIConfigChange({ model: e.target.value })}
+                placeholder="whisper-1"
+                aria-label="Karaoke AI model"
+                className="mt-0.5 w-full bg-slate-900/60 border border-white/10 rounded-lg px-2 py-1 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-400"
+              />
+            </label>
+            <label className="block">
+              <span className="text-[10px] text-slate-400">
+                API key <span className="text-slate-600">(session only)</span>
+              </span>
+              <input
+                type="password"
+                value={karaokeAIConfig.apiKey}
+                onChange={(e) => onKaraokeAIConfigChange({ apiKey: e.target.value })}
+                placeholder="sk-..."
+                aria-label="Karaoke AI API key"
+                autoComplete="off"
+                className="mt-0.5 w-full bg-slate-900/60 border border-white/10 rounded-lg px-2 py-1 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-400"
+              />
+            </label>
           </section>
 
           {/* Play history */}

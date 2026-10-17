@@ -14,23 +14,34 @@
   }
 }
 
-/* Custom sleek scrollbar for glass floating window */
+/* Always-visible scrollbar for the glass lyrics surfaces. Wide, high-contrast
+   and with an explicit track so it reads as a scrollbar in WebView2 on both
+   the Karaoke and Full Sheet tabs. */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.7) rgba(255, 255, 255, 0.08);
+}
+
 .custom-scrollbar::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 10px;
+  height: 10px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 9999px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(148, 163, 184, 0.55);
+  border: 2px solid transparent;
+  background-clip: padding-box;
   border-radius: 9999px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
+  background: rgba(203, 213, 225, 0.85);
+  background-clip: padding-box;
 }
 
 /* Karaoke text glow effect */

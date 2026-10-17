@@ -3,20 +3,34 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { OptionsMenu } from './OptionsMenu';
 import { DEFAULT_SETTINGS } from '../services/settingsStore';
 import type { AppSettings } from '../types/lyrics';
+import type { KaraokeAIConfig } from '../services/karaokeAIConfigStore';
+
+const KARAOKE_AI: KaraokeAIConfig = {
+  endpointUrl: 'https://api.example.com/v1',
+  model: 'whisper-1',
+  apiKey: '',
+};
 
 function renderMenu(overrides: Partial<AppSettings> = {}) {
   const onChange = vi.fn();
   const onResetHistory = vi.fn();
+  const onKaraokeAIConfigChange = vi.fn();
   const settings: AppSettings = {
     ...DEFAULT_SETTINGS,
     window: { ...DEFAULT_SETTINGS.window },
     ...overrides,
   };
   const utils = render(
-    <OptionsMenu settings={settings} onChange={onChange} onResetHistory={onResetHistory} />
+    <OptionsMenu
+      settings={settings}
+      onChange={onChange}
+      onResetHistory={onResetHistory}
+      karaokeAIConfig={KARAOKE_AI}
+      onKaraokeAIConfigChange={onKaraokeAIConfigChange}
+    />
   );
   fireEvent.click(screen.getByTitle('Options'));
-  return { onChange, onResetHistory, settings, ...utils };
+  return { onChange, onResetHistory, onKaraokeAIConfigChange, settings, ...utils };
 }
 
 describe('OptionsMenu', () => {
@@ -79,5 +93,23 @@ describe('OptionsMenu', () => {
     const { onResetHistory } = renderMenu();
     fireEvent.click(screen.getByRole('button', { name: /Reset Most Listened/ }));
     expect(onResetHistory).toHaveBeenCalledOnce();
+  });
+
+  it('edits the Karaoke AI alignment endpoint, model and key', () => {
+    const { onKaraokeAIConfigChange } = renderMenu();
+    fireEvent.change(screen.getByLabelText('Karaoke AI endpoint'), {
+      target: { value: 'https://api.openai.com/v1' },
+    });
+    expect(onKaraokeAIConfigChange).toHaveBeenCalledWith({
+      endpointUrl: 'https://api.openai.com/v1',
+    });
+    fireEvent.change(screen.getByLabelText('Karaoke AI model'), {
+      target: { value: 'whisper-large-v3' },
+    });
+    expect(onKaraokeAIConfigChange).toHaveBeenCalledWith({ model: 'whisper-large-v3' });
+    fireEvent.change(screen.getByLabelText('Karaoke AI API key'), {
+      target: { value: 'sk-x' },
+    });
+    expect(onKaraokeAIConfigChange).toHaveBeenCalledWith({ apiKey: 'sk-x' });
   });
 });

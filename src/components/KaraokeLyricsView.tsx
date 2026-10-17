@@ -40,13 +40,23 @@ export const KaraokeLyricsView: React.FC<KaraokeLyricsViewProps> = ({
     }
   }
 
-  // Smooth auto-scroll to keep active line centered
+  // Smooth auto-scroll to keep the active line centered. This scrolls the
+  // view's OWN container via scrollTop math and never calls `scrollIntoView`,
+  // so no ancestor (the <main> shell or the panel) is ever moved and the
+  // panel header/footer stay pinned.
   useEffect(() => {
-    if (autoScroll && activeLineRef.current && containerRef.current) {
-      activeLineRef.current.scrollIntoView({
-        behavior: 'smooth',
-        block: 'center',
-      });
+    const container = containerRef.current;
+    const activeLine = activeLineRef.current;
+    if (!autoScroll || !container || !activeLine) return;
+
+    const target =
+      activeLine.offsetTop - container.clientHeight / 2 + activeLine.offsetHeight / 2;
+    const top = Math.max(0, target);
+
+    if (typeof container.scrollTo === 'function') {
+      container.scrollTo({ top, behavior: 'smooth' });
+    } else {
+      container.scrollTop = top;
     }
   }, [activeIndex, autoScroll]);
 
@@ -85,7 +95,7 @@ export const KaraokeLyricsView: React.FC<KaraokeLyricsViewProps> = ({
         <div className="flex flex-col items-center justify-center h-full text-slate-400 p-8 text-center select-none">
           <Sparkles className="w-8 h-8 text-cyan-400 mb-3 animate-spin" />
           <p className="text-sm font-medium text-slate-200">Retrieving synchronized lyrics...</p>
-          <p className="text-xs text-slate-500 mt-1">Searching Genius, LRCLIB and other providers</p>
+          <p className="text-xs text-slate-500 mt-1">Searching LRCLIB, Lyrica, Genius and other providers</p>
         </div>
       );
     }
@@ -104,7 +114,7 @@ export const KaraokeLyricsView: React.FC<KaraokeLyricsViewProps> = ({
   return (
     <div
       ref={containerRef}
-      className="h-full overflow-y-auto px-6 py-12 space-y-5 custom-scrollbar select-none"
+      className="relative h-full overflow-y-auto px-6 py-12 space-y-5 custom-scrollbar select-none"
     >
       {lyrics.map((line, index) => {
         const isActive = index === activeIndex;

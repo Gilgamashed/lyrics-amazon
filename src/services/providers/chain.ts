@@ -2,6 +2,7 @@ import { Song } from '../../types/lyrics';
 import { devLog } from '../devLog';
 import { fetchGenius } from './genius';
 import { fetchLrcLib } from './lrclib';
+import { fetchLyrica } from './lyrica';
 import { LyricsProviderResult } from './types';
 
 export type ProviderFn = (
@@ -10,11 +11,19 @@ export type ProviderFn = (
   signal?: AbortSignal
 ) => Promise<LyricsProviderResult>;
 
-const PROVIDERS: ProviderFn[] = [fetchGenius, fetchLrcLib];
+/**
+ * Synced-first order: LRCLIB and Lyrica both host native time-synced lyrics, so
+ * they are tried before Genius, which returns plain-only text by design and has
+ * the heaviest page scrape. Lyrica gets a longer timeout because its free
+ * public deployment can cold-start slowly.
+ */
+export const DEFAULT_PROVIDER_ORDER = ['LRCLIB', 'Lyrica', 'Genius'] as const;
 
-const PROVIDER_NAMES = ['Genius', 'LRCLIB'];
+const PROVIDERS: ProviderFn[] = [fetchLrcLib, fetchLyrica, fetchGenius];
 
-const DEFAULT_TIMEOUTS = [4000, 4000];
+const PROVIDER_NAMES = DEFAULT_PROVIDER_ORDER;
+
+const DEFAULT_TIMEOUTS = [4000, 12000, 4000];
 
 export const PROVIDER_COUNT = PROVIDERS.length;
 

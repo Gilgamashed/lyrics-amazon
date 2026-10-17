@@ -71,7 +71,7 @@ export const FullSheetLyricsView: React.FC<FullSheetLyricsViewProps> = ({
         <div className="flex flex-col items-center justify-center h-full text-slate-400 p-8 text-center select-none">
           <Sparkles className="w-8 h-8 text-cyan-400 mb-3 animate-spin" />
           <p className="text-sm font-medium text-slate-200">Retrieving lyrics...</p>
-          <p className="text-xs text-slate-500 mt-1">Searching Genius, LRCLIB and other providers</p>
+          <p className="text-xs text-slate-500 mt-1">Searching LRCLIB, Lyrica, Genius and other providers</p>
         </div>
       );
     }

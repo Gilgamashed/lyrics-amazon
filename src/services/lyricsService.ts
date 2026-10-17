@@ -16,7 +16,8 @@ export interface FetchLyricsOptions {
 
 /**
  * Retrieves lyrics from the in-memory cache, or fetches from the accepted store,
- * curated database, provider chain, and AI fallback - in that order.
+ * saved AI-synced lyrics, the provider chain, and the live AI fallback - in that
+ * order.
  *
  * Returns `null` when the entire chain yields nothing (genuine "lyrics not found").
  */
@@ -42,8 +43,9 @@ export async function fetchLyrics(
 }
 
 /**
- * Resolves lyrics through: accepted (user override) -> curated -> provider chain
- * (Genius, LRCLIB) -> saved AI -> AI -> not found.
+ * Resolves lyrics through: accepted (user override) -> saved AI (karaoke AI,
+ * which must win future lookups) -> provider chain (LRCLIB, Lyrica, Genius) ->
+ * live AI -> not found.
  */
 async function fetchLyricsUncached(
   song: Song,
@@ -55,17 +57,17 @@ async function fetchLyricsUncached(
   if (startFromIndex === 0) {
     const accepted = getAcceptedLyrics(song);
     if (accepted) return accepted;
+
+    // Permanently saved AI-synced lyrics win future lookups over the chain.
+    const savedAi = getSavedAILyrics(song);
+    if (savedAi) return savedAi;
   }
 
-  // Ordered provider chain before any AI fallback
+  // Ordered provider chain before any live AI fallback
   const chain = await runProviderChain(song, startFromIndex, undefined, undefined, signal);
   if (chain.result) {
     return buildLyricsFromProvider(song, chain.result);
   }
-
-  // Reuse permanently stored AI-generated lyrics before re-invoking the provider
-  const savedAi = getSavedAILyrics(song);
-  if (savedAi) return savedAi;
 
   // Provider-agnostic AI fallback (configurable via session settings or env)
   const resolvedAi = resolveAIConfig(aiConfig);

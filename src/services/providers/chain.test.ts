@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Song } from '../../types/lyrics';
-import { runProviderChain, ProviderFn } from './chain';
+import { runProviderChain, ProviderFn, DEFAULT_PROVIDER_ORDER, PROVIDER_COUNT } from './chain';
 import { LyricsProviderResult } from './types';
 
 const SONG: Song = {
@@ -36,6 +36,11 @@ function rejecting(provider: LyricsProviderResult['provider']): ProviderFn {
 }
 
 describe('runProviderChain', () => {
+  it('exposes a synced-first provider order (LRCLIB → Lyrica → Genius)', () => {
+    expect([...DEFAULT_PROVIDER_ORDER]).toEqual(['LRCLIB', 'Lyrica', 'Genius']);
+    expect(PROVIDER_COUNT).toBe(3);
+  });
+
   it('returns the first synchronized result in order', async () => {
     const providers: ProviderFn[] = [
       async () => synced('Genius'),
@@ -49,11 +54,12 @@ describe('runProviderChain', () => {
 
   it('prefers a later synchronized result over an earlier plain-only result', async () => {
     const providers: ProviderFn[] = [
+      async () => plain('LRCLIB'),
+      async () => synced('Lyrica'),
       async () => plain('Genius'),
-      async () => synced('LRCLIB'),
     ];
     const result = await runProviderChain(SONG, 0, providers);
-    expect(result.result?.provider).toBe('LRCLIB');
+    expect(result.result?.provider).toBe('Lyrica');
     expect(result.usedIndex).toBe(1);
   });
 

@@ -2,15 +2,16 @@
 
 A standalone, desktop-style companion that shows the lyrics of whatever **Amazon Music** is currently playing. The app is **auto-detect only** and docks the lyrics into a single, coherent surface inside the main window — with the currently playing song and album art prominent at the top.
 
-- **Lyrics providers:** an ordered chain — **Genius → LRCLIB (synchronized LRC)** — with per-song thumbs up/down feedback and an optional (deferred) AI fallback. A genuine **"Lyrics not found"** state is shown only when the whole chain comes up empty.
+- **Lyrics providers:** an ordered synced-first chain — **LRCLIB (synchronized LRC) → Lyrica (time-synced) → Genius (plain text)** — with per-song thumbs up/down feedback. A genuine **"Lyrics not found"** state is shown only when the whole chain comes up empty.
+- **AI karaoke sync:** when only plain lyrics exist, a **Generate Karaoke (AI)** action captures the audio via **WASAPI loopback**, aligns it with a user-configured Whisper-class endpoint, merges the timings, and **saves the result permanently** (labelled `AI Sync`) so future lookups replay instantly. The endpoint URL + model persist; the API key is session-only.
 - **Playback sync:** synchronized karaoke highlighting driven by the detected playback position, with `±0.5s` / `±0.1s` calibration shown alongside the lyrics. The clock clamps only against a **real** track duration and free-runs past the 3-minute display fallback when the timeline is unknown.
 - **Real album art & metadata truth:** the native bridge reads the Windows SMTC thumbnail (returned as a size-capped `data:` URL); placeholder/garbage metadata (e.g. a literal `"Artist name"`) is rejected in favour of the last good track, and a **Fix** control lets you correct a wrong title/artist and re-run the provider search (corrections persist per track and are revertible).
-- **Dual display modes:** Synchronized Karaoke (synced results) and Full Lyrics Sheet (plain-only results).
+- **Dual display modes:** Synchronized Karaoke (synced results) and Full Lyrics Sheet (plain-only results), with a panel header and custom scrollbars that stay visible at compact window sizes.
 - **Info panel:** **artist / song / album** details and trivia supplied by the lyrics provider, with a graceful empty state.
 - **Most Listened:** a local, restart-durable usage view with **Hot (last 5 days) / Month / Lifetime** tabs; a play counts only after **≥ 30 seconds** of real playback **from Amazon Music** (non-Amazon sessions and legacy unflagged records are excluded).
-- **One Options menu:** all customization — lyrics layout preset, backdrop, appearance (opacity/blur/font/palette), default sync offset, and a Most Listened reset — lives in a single menu.
+- **One Options menu:** all customization — lyrics layout preset, backdrop, appearance (opacity/blur/font/palette), default sync offset, **Karaoke AI endpoint/model/key**, and a Most Listened reset — lives in a single menu.
 
-> Status: Phase 8 (Hardening & Release) — **MVP complete**; post-MVP packaging (`specs/09_SPEC_POSTMVP-APP-PACK.md`), the lyrics/UX minor patch (`specs/10_SPEC_POSTMVP-MIN-PATCH.md`), the critical lyrics-pipeline fix (`specs/11_SPEC_POSTMVP-LYRICS-PIPELINE-FIX.md`), the post-MVP UX redesign (`specs/12_SPEC_POSTMVP-UX-REDESIGN.md`), and the live-core patch (detection/metadata/playback/lyrics, `specs/13_SPEC_POSTMVP-LIVE-CORE-PATCH.md`) are implemented on `dev` at version **0.5.1**. See `specs/PROJECT_OVERVIEW.MD` for the roadmap and `specs/00_AI-SAFE.md` for the SpecDD scope rules.
+> Status: Phase 8 (Hardening & Release) — **MVP complete**; post-MVP packaging (`specs/09_SPEC_POSTMVP-APP-PACK.md`), the lyrics/UX minor patch (`specs/10_SPEC_POSTMVP-MIN-PATCH.md`), the critical lyrics-pipeline fix (`specs/11_SPEC_POSTMVP-LYRICS-PIPELINE-FIX.md`), the post-MVP UX redesign (`specs/12_SPEC_POSTMVP-UX-REDESIGN.md`), the live-core patch (detection/metadata/playback/lyrics, `specs/13_SPEC_POSTMVP-LIVE-CORE-PATCH.md`), and the lyrics-panel UX / provider-chain / AI-karaoke patch (`specs/14_SPEC_POSTMVP-LYRICS-UX-KARAOKE.md`) are implemented on `dev` at version **0.5.2**. See `specs/PROJECT_OVERVIEW.MD` for the roadmap and `specs/00_AI-SAFE.md` for the SpecDD scope rules.
 
 ## Prerequisites
 
@@ -184,7 +185,7 @@ npm run tauri:build
 
 ### Branching & Staging
 
-- **`dev`** — integration branch; every change lands here first and is validated by CI. Currently carries version **0.5.1**.
+- **`dev`** — integration branch; every change lands here first and is validated by CI. Currently carries version **0.5.2**.
 - **`staging`** — long-lived release-candidate branch where the in-progress version is staged (cut from `dev`, advanced by merging `dev` → `staging`). CI runs on its pushes too.
 - **`vX.Y.Z` tags** — cut from `staging` for a stable release; the tag workflow publishes a normal GitHub Release and the in-app updater offers it.
 - **`vX.Y.Z-rc.N` tags** — pre-releases for manual testing only. Any tag containing `-` publishes as a GitHub **pre-release** (e.g. `v0.3.0-rc.1`); the updater only reads `releases/latest`, so pre-releases are never offered automatically.

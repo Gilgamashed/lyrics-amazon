@@ -122,17 +122,17 @@ The remaining round-2 items — Amazon-only Most Listened, album art, the 3-minu
 
 ## 4. Definition of Done
 
-- [ ] Karaoke auto-scroll **never moves ancestors**; the panel header (song name + **Karaoke/Full Sheet tabs**) stays visible at every layout preset and small window sizes.
-- [ ] Both the **Karaoke** and **Full Sheet** tabs show an **always-visible scrollbar** and scroll by wheel/drag.
-- [ ] The provider chain is **`LRCLIB → Lyrica → Genius`**; Genius no longer precedes a synced source, and a synchronized result is reached whenever one exists.
-- [ ] **Lyrica** is validated live and wired through the egress allow-list (or the blocker is explicitly recorded in this spec).
-- [ ] A plain-only track can be converted with the user-triggered **AI karaoke** flow (capture → align → merge → save), the saved synced lyrics **play in Karaoke** and **win future lookups**, and they **persist across restarts**.
-- [ ] The AI flow clearly states that audio is sent to the configured endpoint; **no key or secret is committed** and capture remains local.
-- [ ] New tests cover the header/scroll behavior, the scrollbars, the Lyrica adapter, the reordered chain, the alignment/merge service, and the karaoke-sync store precedence.
-- [ ] The reported *"Genius → karaoke unavailable"* issue is closed end-to-end (spec 13 fixes the metadata/lookup half; this spec's reordered chain + Lyrica fix the synced-source half).
-- [ ] All existing quality gates pass (lint, build, Vitest, coverage ≥ 85% with 100% of critical files, fmt, clippy, Rust tests, E2E, `smoke`, `bridge:smoke`), with new tests covering the added behavior.
-- [ ] No secrets are committed; `specs/PROMPTS.md` records this spec; the README and `specs/PROJECT_OVERVIEW.MD` stay consistent.
-- [ ] The app version is bumped to **`0.5.2`**; **no tag or release** was produced and no §5 deferred items were introduced.
+- [x] Karaoke auto-scroll **never moves ancestors**; the panel header (song name + **Karaoke/Full Sheet tabs**) stays visible at every layout preset and small window sizes.
+- [x] Both the **Karaoke** and **Full Sheet** tabs show an **always-visible scrollbar** and scroll by wheel/drag.
+- [x] The provider chain is **`LRCLIB → Lyrica → Genius`**; Genius no longer precedes a synced source, and a synchronized result is reached whenever one exists.
+- [x] **Lyrica** is validated live and wired through the egress allow-list (or the blocker is explicitly recorded in this spec).
+- [x] A plain-only track can be converted with the user-triggered **AI karaoke** flow (capture → align → merge → save), the saved synced lyrics **play in Karaoke** and **win future lookups**, and they **persist across restarts**.
+- [x] The AI flow clearly states that audio is sent to the configured endpoint; **no key or secret is committed** and capture remains local.
+- [x] New tests cover the header/scroll behavior, the scrollbars, the Lyrica adapter, the reordered chain, the alignment/merge service, and the karaoke-sync store precedence.
+- [x] The reported *"Genius → karaoke unavailable"* issue is closed end-to-end (spec 13 fixes the metadata/lookup half; this spec's reordered chain + Lyrica fix the synced-source half).
+- [x] All existing quality gates pass (lint, build, Vitest, coverage ≥ 85% with 100% of critical files, fmt, clippy, Rust tests, E2E, `smoke`, `bridge:smoke`), with new tests covering the added behavior.
+- [x] No secrets are committed; `specs/PROMPTS.md` records this spec; the README and `specs/PROJECT_OVERVIEW.MD` stay consistent.
+- [x] The app version is bumped to **`0.5.2`**; **no tag or release** was produced and no §5 deferred items were introduced.
 
 ## 5. Deferred / TODO
 

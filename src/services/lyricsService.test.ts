@@ -170,12 +170,12 @@ describe('fetchLyrics', () => {
     const first = await fetchLyrics(SONG);
     const second = await fetchLyrics(SONG);
     expect(second).toBe(first);
-    // Genius (empty) then LRCLIB (synced) on the cold path; cached on the second.
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // LRCLIB (synced-first) answers on the first request; cached on the second.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    // Bypassing the cache refetches (Genius + LRCLIB again).
+    // Bypassing the cache refetches (LRCLIB again).
     await fetchLyrics(SONG, { useCache: false });
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('reuses permanently saved AI lyrics', async () => {
@@ -202,6 +202,36 @@ describe('fetchLyrics', () => {
     const result = await fetchLyrics(SONG, { aiConfig: AI_CONFIG });
     expect(result?.provider).toBe('AI Sync');
     expect(result?.syncedLyrics[0].text).toBe('Saved line');
+  });
+
+  it('prefers saved AI-synced lyrics over a successful provider chain', async () => {
+    // The chain would return a synced LRCLIB result, but a permanent AI sync
+    // for the song must win the lookup (spec 14 §3.5/§5).
+    fetchMock.mockResolvedValue(
+      jsonOk({ syncedLyrics: '[00:01.00] Network line', plainLyrics: 'Network line' })
+    );
+    localStorage.setItem(
+      'lyrics-amazon:ai-lyrics:v1',
+      JSON.stringify({
+        'random test track|test voice': {
+          songId: SONG.id,
+          title: SONG.title,
+          artist: SONG.artist,
+          album: SONG.album,
+          albumArt: '',
+          provider: 'AI Sync',
+          syncedLyrics: [{ text: 'Saved karaoke line', startTimeMs: 500, id: 'y' }],
+          plainLyrics: 'Saved karaoke line',
+          annotations: [],
+          trivia: [],
+        },
+      })
+    );
+
+    const result = await fetchLyrics(SONG);
+    expect(result?.provider).toBe('AI Sync');
+    expect(result?.syncedLyrics[0].text).toBe('Saved karaoke line');
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('calls the AI provider as a fallback and persists the result', async () => {
@@ -244,7 +274,7 @@ describe('fetchLyrics', () => {
     fetchMock.mockImplementation(abortableFetch());
 
     const pending = fetchLyrics(SONG);
-    await vi.advanceTimersByTimeAsync(20000);
+    await vi.advanceTimersByTimeAsync(30000);
     const result = await pending;
     expect(result).toBeNull();
   });
@@ -264,15 +294,21 @@ describe('fetchLyrics', () => {
   it('advances the chain when startFromIndex skips earlier providers', async () => {
     fetchMock.mockResolvedValue(
       jsonOk({
-        syncedLyrics: '[00:01.00] A fairly long first line\n[00:02.00] Second fairly long line',
-        plainLyrics: '',
+        status: 'success',
+        data: {
+          timed_lyrics: [
+            { start_time: 1000, text: 'A fairly long first line' },
+            { start_time: 2000, text: 'Second fairly long line' },
+          ],
+        },
       })
     );
 
     const result = await fetchLyrics(SONG, { startFromIndex: 1 });
-    expect(result?.provider).toBe('LRCLIB');
+    expect(result?.provider).toBe('Lyrica');
     const urls = fetchMock.mock.calls.map((c) => c[0] as string);
+    expect(urls.some((u) => u.includes('lrclib.net'))).toBe(false);
     expect(urls.some((u) => u.includes('genius.com'))).toBe(false);
-    expect(urls.some((u) => u.includes('lrclib.net'))).toBe(true);
+    expect(urls.some((u) => u.includes('test-0k.onrender.com'))).toBe(true);
   });
 });

@@ -1,3 +1,4 @@
+mod capture;
 mod now_playing;
 mod source;
 
@@ -14,7 +15,7 @@ use axum::{
     http::{HeaderValue, Method, Request, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
 };
 use tokio::sync::broadcast;
 
@@ -56,6 +57,7 @@ pub fn build_router(state: Arc<BridgeState>) -> Router {
         .route("/health", get(health))
         .route("/now-playing", get(now_playing))
         .route("/fetch", get(fetch_proxy))
+        .route("/capture", post(capture_audio))
         .route("/ws", get(ws_upgrade))
         .layer(middleware::from_fn(cors_layer))
         .with_state(state)
@@ -122,7 +124,7 @@ async fn cors_layer(request: Request<Body>, next: Next) -> Response {
             );
             headers.insert(
                 header::ACCESS_CONTROL_ALLOW_METHODS,
-                HeaderValue::from_static("GET, HEAD, OPTIONS"),
+                HeaderValue::from_static("GET, HEAD, POST, OPTIONS"),
             );
             headers.insert(header::VARY, HeaderValue::from_static("Origin"));
         }
@@ -186,6 +188,7 @@ fn is_allowed_host(host: &str) -> bool {
         || host.ends_with(".genius.com")
         || host == "lrclib.net"
         || host.ends_with(".lrclib.net")
+        || host == "test-0k.onrender.com"
         || host == "127.0.0.1"
         || host == "localhost"
 }
@@ -246,6 +249,45 @@ fn build_proxy_response(
     builder
         .body(Body::from(bytes))
         .unwrap_or_else(|_| StatusCode::BAD_GATEWAY.into_response())
+}
+
+#[derive(serde::Deserialize, Default)]
+struct CaptureParams {
+    duration_ms: Option<i64>,
+}
+
+/// Records the default render endpoint (WASAPI loopback) and returns a PCM WAV.
+/// Blocking device I/O runs on a worker thread so the async runtime is never
+/// held up. Non-Windows hosts report 501; capture failures report 500.
+async fn capture_audio(Query(params): Query<CaptureParams>) -> Response {
+    let duration_ms = capture::clamp_duration_ms(params.duration_ms.unwrap_or(15_000));
+
+    let result = tokio::task::spawn_blocking(move || capture::capture_loopback(duration_ms)).await;
+
+    match result {
+        Ok(Ok(bytes)) => (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, HeaderValue::from_static("audio/wav"))],
+            bytes,
+        )
+            .into_response(),
+        Ok(Err(message)) => {
+            log::warn!("[bridge] capture unavailable: {message}");
+            (
+                StatusCode::NOT_IMPLEMENTED,
+                Json(serde_json::json!({ "error": message })),
+            )
+                .into_response()
+        }
+        Err(error) => {
+            log::error!("[bridge] capture task failed: {error}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "capture task failed" })),
+            )
+                .into_response()
+        }
+    }
 }
 
 async fn ws_upgrade(
@@ -616,6 +658,7 @@ mod tests {
             "api.genius.com",
             "lrclib.net",
             "www.lrclib.net",
+            "test-0k.onrender.com",
             "127.0.0.1",
             "localhost",
         ] {
@@ -626,6 +669,8 @@ mod tests {
             "genius.com.evil.example",
             "notgenius.com",
             "example.org",
+            "onrender.com",
+            "evil.onrender.com",
         ] {
             assert!(!is_allowed_host(host), "expected {host} to be rejected");
         }
@@ -672,5 +717,60 @@ mod tests {
         assert_eq!(body_text(response).await, "hello lyrics");
 
         handle.abort();
+    }
+
+    #[tokio::test]
+    async fn capture_route_is_wired_for_post() {
+        let router = build_router(idle_state());
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/capture?duration_ms=1")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // The route exists (no 404/405). On Windows the device path is unavailable
+        // in CI hygiene but must still resolve to a defined status, never a panic.
+        assert_ne!(response.status(), StatusCode::NOT_FOUND);
+        assert_ne!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
+        assert!(
+            matches!(
+                response.status(),
+                StatusCode::OK | StatusCode::NOT_IMPLEMENTED | StatusCode::INTERNAL_SERVER_ERROR
+            ),
+            "unexpected capture status: {}",
+            response.status()
+        );
+    }
+
+    #[tokio::test]
+    async fn cors_preflight_advertises_post_for_capture() {
+        let router = build_router(idle_state());
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::OPTIONS)
+                    .uri("/capture")
+                    .header(header::ORIGIN, "http://localhost:3000")
+                    .header(header::ACCESS_CONTROL_REQUEST_METHOD, "POST")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        let methods = response
+            .headers()
+            .get(header::ACCESS_CONTROL_ALLOW_METHODS)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default();
+        assert!(methods.contains("POST"), "got {methods}");
     }
 }

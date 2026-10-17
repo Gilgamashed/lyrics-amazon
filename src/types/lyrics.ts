@@ -41,6 +41,7 @@ export interface LyricsData {
   provider:
     | 'Genius'
     | 'LRCLIB'
+    | 'Lyrica'
     | 'AI Sync'
     | 'Amazon Music'
     | 'None';
@@ -101,6 +102,15 @@ export interface AIConfig {
 export type DetectionSource = 'browser' | 'desktop';
 
 export type FeedbackState = 'none' | 'up' | 'down';
+
+/** Progress of the user-triggered AI karaoke pipeline. */
+export type KaraokeAIStatus =
+  | 'idle'
+  | 'capturing'
+  | 'aligning'
+  | 'saving'
+  | 'done'
+  | 'error';
 
 export interface NowPlaying {
   source: string;

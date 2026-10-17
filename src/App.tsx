@@ -7,10 +7,21 @@ import {
   DetectionSource,
   FeedbackState,
   ViewMode,
+  KaraokeAIStatus,
 } from './types/lyrics';
 import { fetchLyrics } from './services/lyricsService';
+import { DEFAULT_PROVIDER_ORDER } from './services/providers/chain';
 import { resolveAIConfig } from './services/aiService';
 import { saveAcceptedLyrics } from './services/userLyricsStore';
+import { saveAILyrics } from './services/aiLyricsStore';
+import { capturePlayback, DEFAULT_CAPTURE_MS } from './services/captureService';
+import { alignPlainLyrics, toKaraokeLyricsData } from './services/karaokeAlignService';
+import {
+  KaraokeAIConfig,
+  isKaraokeAIConfigured,
+  loadKaraokeAIConfig,
+  saveKaraokeAIConfig,
+} from './services/karaokeAIConfigStore';
 import { createBridgeClient, BridgeConnectionState } from './services/bridgeService';
 import { loadSettings, saveSettings } from './services/settingsStore';
 import { PlaySessionScorer, recordPlay, resetHistory } from './services/playHistoryStore';
@@ -30,7 +41,7 @@ import { BackgroundBackdrop } from './components/BackgroundBackdrop';
 import { OptionsMenu } from './components/OptionsMenu';
 import { APP_VERSION } from './appVersion';
 
-const PROVIDER_ORDER: LyricsData['provider'][] = ['Genius', 'LRCLIB'];
+const PROVIDER_ORDER: LyricsData['provider'][] = [...DEFAULT_PROVIDER_ORDER];
 
 function providerIndexFor(label: LyricsData['provider']): number {
   const idx = PROVIDER_ORDER.indexOf(label);
@@ -92,6 +103,18 @@ export default function App() {
 
   // Session-only AI fallback config (used silently; no longer surfaced in the UI)
   const [aiConfig] = useState(() => resolveAIConfig());
+
+  // User-triggered AI karaoke pipeline (capture → align → save)
+  const [karaokeAIConfig, setKaraokeAIConfig] = useState<KaraokeAIConfig>(() =>
+    loadKaraokeAIConfig()
+  );
+  const [karaokeAIStatus, setKaraokeAIStatus] = useState<KaraokeAIStatus>('idle');
+  const [karaokeAIMessage, setKaraokeAIMessage] = useState<string | undefined>(undefined);
+  const karaokeAbortRef = useRef<AbortController | null>(null);
+
+  const updateKaraokeAIConfig = useCallback((updates: Partial<KaraokeAIConfig>) => {
+    setKaraokeAIConfig(saveKaraokeAIConfig(updates));
+  }, []);
 
   // Persisted customization settings (layout preset, backdrop, appearance, offset)
   const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
@@ -218,6 +241,7 @@ export default function App() {
   );
 
   useEffect(() => () => latestRequestRef.current.cancel(), []);
+  useEffect(() => () => karaokeAbortRef.current?.abort(), []);
 
   const handleThumbsUp = useCallback(() => {
     if (lyricsData.syncedLyrics.length === 0 && !lyricsData.plainLyrics.trim()) return;
@@ -230,6 +254,79 @@ export default function App() {
     setFeedbackState('down');
     void loadLyrics(currentSong, aiConfig, false, next);
   }, [currentSong, aiConfig, loadLyrics]);
+
+  // Capture the current playback, align it against the known plain lyrics, and
+  // persist the merged result so it wins future lookups for this song.
+  const handleGenerateKaraoke = useCallback(async () => {
+    if (lyricsData.syncedLyrics.length > 0) return;
+    const plainLyrics = lyricsData.plainLyrics.trim();
+    if (!plainLyrics) return;
+
+    if (!isKaraokeAIConfigured(karaokeAIConfig)) {
+      setKaraokeAIStatus('error');
+      setKaraokeAIMessage('Set the Karaoke AI endpoint, model and key in Options first.');
+      return;
+    }
+
+    karaokeAbortRef.current?.abort();
+    const controller = new AbortController();
+    karaokeAbortRef.current = controller;
+
+    setKaraokeAIStatus('capturing');
+    setKaraokeAIMessage('Recording system audio\u2026');
+    try {
+      const audio = await capturePlayback(DEFAULT_CAPTURE_MS, controller.signal);
+      if (controller.signal.aborted) return;
+
+      setKaraokeAIStatus('aligning');
+      setKaraokeAIMessage('Aligning lyrics with the captured audio\u2026');
+      const lines = await alignPlainLyrics(audio, karaokeAIConfig, plainLyrics, controller.signal);
+      if (controller.signal.aborted) return;
+
+      if (lines.length === 0) {
+        setKaraokeAIStatus('error');
+        setKaraokeAIMessage('The alignment service returned no timings.');
+        return;
+      }
+
+      setKaraokeAIStatus('saving');
+      setKaraokeAIMessage('Saving synced lyrics\u2026');
+      const data = toKaraokeLyricsData(currentSong, lines);
+      saveAILyrics(currentSong, data);
+      setLyricsData(data);
+      lastProviderIndexRef.current = providerIndexFor('AI Sync');
+      applyAutoViewMode('karaoke');
+      setKaraokeAIStatus('done');
+      setKaraokeAIMessage('Karaoke generated and saved. It will be reused next time.');
+    } catch (error) {
+      if (controller.signal.aborted) {
+        setKaraokeAIStatus('idle');
+        setKaraokeAIMessage(undefined);
+        return;
+      }
+      setKaraokeAIStatus('error');
+      setKaraokeAIMessage(
+        error instanceof Error ? error.message : 'Karaoke generation failed.'
+      );
+    } finally {
+      if (karaokeAbortRef.current === controller) karaokeAbortRef.current = null;
+    }
+  }, [currentSong, karaokeAIConfig, lyricsData.plainLyrics, lyricsData.syncedLyrics.length, applyAutoViewMode]);
+
+  const handleCancelKaraoke = useCallback(() => {
+    karaokeAbortRef.current?.abort();
+    karaokeAbortRef.current = null;
+    setKaraokeAIStatus('idle');
+    setKaraokeAIMessage(undefined);
+  }, []);
+
+  // Reset AI karaoke progress whenever the track changes, aborting any capture.
+  useEffect(() => {
+    karaokeAbortRef.current?.abort();
+    karaokeAbortRef.current = null;
+    setKaraokeAIStatus('idle');
+    setKaraokeAIMessage(undefined);
+  }, [currentSong.id]);
 
   const handleSelectSong = useCallback(
     (song: Song) => {
@@ -383,6 +480,8 @@ export default function App() {
               settings={settings}
               onChange={updateSettings}
               onResetHistory={handleResetHistory}
+              karaokeAIConfig={karaokeAIConfig}
+              onKaraokeAIConfigChange={updateKaraokeAIConfig}
             />
           }
         />
@@ -405,6 +504,11 @@ export default function App() {
               feedbackState={feedbackState}
               onThumbsUp={handleThumbsUp}
               onThumbsDown={handleThumbsDown}
+              onGenerateKaraoke={handleGenerateKaraoke}
+              onCancelKaraoke={handleCancelKaraoke}
+              karaokeAIStatus={karaokeAIStatus}
+              karaokeAIMessage={karaokeAIMessage}
+              karaokeAIConfigured={isKaraokeAIConfigured(karaokeAIConfig)}
               layoutWidth={layoutWidthFor(settings.layoutPreset)}
             />
           )}

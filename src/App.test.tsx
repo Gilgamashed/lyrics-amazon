@@ -5,7 +5,26 @@ import { APP_VERSION } from './appVersion';
 import { fetchLyrics } from './services/lyricsService';
 import { recordPlay } from './services/playHistoryStore';
 import { trackKey } from './services/metaOverrideStore';
+import { capturePlayback } from './services/captureService';
+import { alignPlainLyrics } from './services/karaokeAlignService';
+import { saveKaraokeAIConfig } from './services/karaokeAIConfigStore';
 import { LyricsData, NowPlaying, Song } from './types/lyrics';
+
+vi.mock('./services/captureService', () => ({
+  capturePlayback: vi.fn(async () => new Blob(['audio'], { type: 'audio/wav' })),
+  DEFAULT_CAPTURE_MS: 15000,
+}));
+
+vi.mock('./services/karaokeAlignService', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./services/karaokeAlignService')>();
+  return {
+    ...original,
+    alignPlainLyrics: vi.fn(async () => [
+      { id: 'ai-sync-0', startTimeMs: 0, endTimeMs: 1000, text: 'City Lights opening' },
+      { id: 'ai-sync-1', startTimeMs: 1000, endTimeMs: 2000, text: 'City Lights middle' },
+    ]),
+  };
+});
 
 vi.mock('./services/playHistoryStore', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./services/playHistoryStore')>();
@@ -116,6 +135,8 @@ describe('App', () => {
     bridgeBridge.onNowPlaying = () => {};
     vi.mocked(fetchLyrics).mockClear();
     vi.mocked(recordPlay).mockClear();
+    vi.mocked(capturePlayback).mockClear();
+    vi.mocked(alignPlainLyrics).mockClear();
     localStorage.clear();
     stubMediaSession();
     rafCallback = null;
@@ -423,5 +444,49 @@ describe('App', () => {
       expect.objectContaining({ useCache: false })
     );
     expect(localStorage.getItem(OVERRIDES_KEY)).not.toContain('Correct Title');
+  });
+
+  it('generates AI karaoke for a plain-only track and persists it', async () => {
+    vi.mocked(fetchLyrics).mockResolvedValueOnce({
+      songId: 'desktop-city-lights-unknown-artist',
+      title: 'City Lights',
+      artist: 'Unknown',
+      album: 'Singles',
+      albumArt: '',
+      provider: 'Genius',
+      syncedLyrics: [],
+      plainLyrics: 'City Lights opening\nCity Lights middle',
+      annotations: [],
+      trivia: [],
+    });
+    saveKaraokeAIConfig({
+      endpointUrl: 'https://api.example.com/v1',
+      model: 'whisper-1',
+      apiKey: 'sk-test',
+    });
+
+    render(<App />);
+    await act(async () => {
+      bridgeBridge.onConnectionChange('connected');
+    });
+    await act(async () => {
+      bridgeBridge.onNowPlaying(nowPlaying({ title: 'City Lights', artist: 'Unknown' }));
+    });
+
+    const button = await screen.findByTestId('generate-karaoke');
+    expect(button).toBeEnabled();
+
+    await act(async () => {
+      fireEvent.click(button);
+    });
+
+    // The plain-only result is replaced by the synced karaoke lines.
+    expect(await screen.findByText('City Lights opening')).toBeInTheDocument();
+    expect(vi.mocked(capturePlayback)).toHaveBeenCalledOnce();
+    expect(vi.mocked(alignPlainLyrics)).toHaveBeenCalledOnce();
+    // Persisted permanently as AI Sync so it wins future lookups.
+    expect(localStorage.getItem('lyrics-amazon:ai-lyrics:v1')).toContain('AI Sync');
+    // The plain-only banner is gone once timed lyrics exist.
+    expect(screen.queryByTestId('karaoke-ai-banner')).not.toBeInTheDocument();
   });
 });

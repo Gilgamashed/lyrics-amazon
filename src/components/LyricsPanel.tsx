@@ -1,9 +1,9 @@
 import React from 'react';
-import { LyricsData, WindowState, FeedbackState } from '../types/lyrics';
+import { LyricsData, WindowState, FeedbackState, KaraokeAIStatus } from '../types/lyrics';
 import { KaraokeLyricsView } from './KaraokeLyricsView';
 import { FullSheetLyricsView } from './FullSheetLyricsView';
 import { InfoPanel } from './InfoPanel';
-import { Info, ThumbsUp, ThumbsDown } from 'lucide-react';
+import { Info, ThumbsUp, ThumbsDown, Sparkles, Loader2, X, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 interface LyricsPanelProps {
   lyricsData: LyricsData;
@@ -17,6 +17,11 @@ interface LyricsPanelProps {
   feedbackState?: FeedbackState;
   onThumbsUp?: () => void;
   onThumbsDown?: () => void;
+  onGenerateKaraoke?: () => void;
+  onCancelKaraoke?: () => void;
+  karaokeAIStatus?: KaraokeAIStatus;
+  karaokeAIMessage?: string;
+  karaokeAIConfigured?: boolean;
   layoutWidth: number;
 }
 
@@ -37,6 +42,11 @@ export const LyricsPanel: React.FC<LyricsPanelProps> = ({
   feedbackState = 'none',
   onThumbsUp,
   onThumbsDown,
+  onGenerateKaraoke,
+  onCancelKaraoke,
+  karaokeAIStatus = 'idle',
+  karaokeAIMessage,
+  karaokeAIConfigured = false,
   layoutWidth,
 }) => {
   const [showInfo, setShowInfo] = React.useState(false);
@@ -53,6 +63,14 @@ export const LyricsPanel: React.FC<LyricsPanelProps> = ({
       : 'bg-slate-900/80';
 
   const plainLineCount = lyricsData.plainLyrics.split('\n').filter((l) => l.trim()).length;
+  const isKaraokeBusy =
+    karaokeAIStatus === 'capturing' ||
+    karaokeAIStatus === 'aligning' ||
+    karaokeAIStatus === 'saving';
+  const showKaraokeAction =
+    lyricsData.syncedLyrics.length === 0 &&
+    plainLineCount > 0 &&
+    Boolean(onGenerateKaraoke);
 
   return (
     <div
@@ -66,11 +84,13 @@ export const LyricsPanel: React.FC<LyricsPanelProps> = ({
     >
       {/* ─── Panel Header: view toggle, Info, sync calibration ─────────── */}
       <div className="px-4 py-2.5 flex items-center justify-between gap-3 border-b border-white/10 shrink-0 bg-black/20">
-        <div className="min-w-0 flex items-center gap-2">
-          <span className="text-xs font-bold text-white truncate tracking-tight">
+        <div className="flex-1 min-w-0 flex items-baseline gap-2">
+          <span className="min-w-0 truncate text-xs font-bold text-white tracking-tight">
             {lyricsData.title}
           </span>
-          <span className="text-[11px] text-slate-400 truncate">· {lyricsData.artist}</span>
+          <span className="hidden sm:inline shrink-0 text-[11px] text-slate-400 truncate max-w-[40%]">
+            · {lyricsData.artist}
+          </span>
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
@@ -78,18 +98,18 @@ export const LyricsPanel: React.FC<LyricsPanelProps> = ({
             <button
               type="button"
               onClick={() => onUpdateWindowState({ viewMode: 'karaoke' })}
-              className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
+              className={`px-2 sm:px-2.5 py-1 text-xs font-semibold rounded-md transition-all whitespace-nowrap ${
                 windowState.viewMode === 'karaoke'
                   ? 'bg-cyan-500 text-slate-950 shadow-sm'
                   : 'text-slate-300 hover:text-white'
               }`}
             >
-              Karaoke (Synced)
+              Karaoke<span className="hidden sm:inline"> (Synced)</span>
             </button>
             <button
               type="button"
               onClick={() => onUpdateWindowState({ viewMode: 'sheet' })}
-              className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
+              className={`px-2 sm:px-2.5 py-1 text-xs font-semibold rounded-md transition-all whitespace-nowrap ${
                 windowState.viewMode === 'sheet'
                   ? 'bg-cyan-500 text-slate-950 shadow-sm'
                   : 'text-slate-300 hover:text-white'
@@ -170,6 +190,84 @@ export const LyricsPanel: React.FC<LyricsPanelProps> = ({
           </button>
         </div>
       </div>
+
+      {/* ─── AI karaoke action (plain-only results) ─────────────────────── */}
+      {showKaraokeAction && (
+        <div
+          className="px-4 py-2 border-b border-white/10 shrink-0 flex items-center justify-between gap-3 flex-wrap bg-cyan-500/5"
+          data-testid="karaoke-ai-banner"
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <Sparkles className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold text-slate-200 truncate">
+                {karaokeAIStatus === 'done'
+                  ? 'Karaoke generated'
+                  : 'No timed lyrics for this track'}
+              </p>
+              <p className="text-[10px] text-slate-500 truncate">
+                {karaokeAIMessage ??
+                  'Generate timed karaoke by aligning the audio with these lyrics.'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {isKaraokeBusy ? (
+              <>
+                <span
+                  className="flex items-center gap-1.5 text-[11px] text-cyan-300"
+                  data-testid="karaoke-ai-progress"
+                >
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  {karaokeAIStatus === 'capturing'
+                    ? 'Recording audio\u2026'
+                    : karaokeAIStatus === 'aligning'
+                    ? 'Aligning\u2026'
+                    : 'Saving\u2026'}
+                </span>
+                {onCancelKaraoke && (
+                  <button
+                    type="button"
+                    onClick={onCancelKaraoke}
+                    className="flex items-center gap-1 px-2 py-1 text-[11px] rounded-lg border border-white/10 bg-slate-800 text-slate-300 hover:text-white transition-all"
+                  >
+                    <X className="w-3 h-3" /> Cancel
+                  </button>
+                )}
+              </>
+            ) : (
+              <>
+                {karaokeAIStatus === 'error' && (
+                  <span className="flex items-center gap-1 text-[11px] text-rose-400">
+                    <AlertCircle className="w-3.5 h-3.5" /> Failed
+                  </span>
+                )}
+                {karaokeAIStatus === 'done' && (
+                  <span className="flex items-center gap-1 text-[11px] text-emerald-400">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Saved
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={onGenerateKaraoke}
+                  disabled={!karaokeAIConfigured || isLoadingLyrics}
+                  title={
+                    karaokeAIConfigured
+                      ? 'Capture the audio and align it with these lyrics'
+                      : 'Configure the Karaoke AI endpoint in Options first'
+                  }
+                  data-testid="generate-karaoke"
+                  className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold rounded-lg transition-all whitespace-nowrap bg-cyan-500 text-slate-950 hover:bg-cyan-400 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  {karaokeAIStatus === 'error' ? 'Retry' : 'Generate Karaoke (AI)'}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ─── Body: lyrics + Info drawer ─────────────────────────────────── */}
       <div className="flex-1 flex overflow-hidden relative" style={{ minHeight: 360 }}>
