@@ -1,6 +1,6 @@
 [package]
 name = "amazon-music-floating-lyrics-bridge"
-version = "0.5.2"
+version = "0.5.3-rc.1"
 description = "Native companion bridge that detects the currently playing track (Windows SMTC first) and exposes it to the Lyrics for Amazon Music UI over localhost WebSocket + HTTP."
 authors = ["lyrics-amazon"]
 license = ""
@@ -26,6 +26,7 @@ tauri = { version = "2.12.3", features = [] }
 tauri-plugin-log = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-dialog = "2"
+tauri-plugin-single-instance = "2"
 tokio = { version = "1.53.2", features = ["full"] }
 axum = { version = "0.8.9", features = ["ws"] }
 futures-util = "0.3.34"

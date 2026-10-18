@@ -86,19 +86,26 @@ export default async function globalSetup(): Promise<void> {
   });
   writeFileSync(PID_FILE, String(child.pid));
 
-  child.on('exit', (code) => {
-    log(`bridge process exited (code ${code})`);
-    if (existsSync(PID_FILE)) writeFileSync(PID_FILE, '');
-  });
-
   let stderrBuf = '';
   child.stderr?.on('data', (chunk) => {
     stderrBuf += String(chunk);
   });
 
+  let exited = false;
+  child.on('exit', (code) => {
+    exited = true;
+    log(`bridge process exited (code ${code})`);
+    if (existsSync(PID_FILE)) writeFileSync(PID_FILE, '');
+  });
+
   // Wait for the bridge health endpoint.
   const started = Date.now();
   for (;;) {
+    if (exited) {
+      throw new Error(
+        `bridge exited before becoming healthy (single-instance lock or port ${PORT} likely held by another instance — close the running app / tauri dev and retry)\n--- bridge stderr ---\n${stderrBuf}`
+      );
+    }
     try {
       const res = await fetch(HEALTH);
       if (res.ok) {

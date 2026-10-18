@@ -84,7 +84,11 @@ async fn bind_bridge_at(addr: std::net::SocketAddr) -> io::Result<tokio::net::Tc
     tokio::net::TcpListener::bind(addr).await
 }
 
-pub async fn run() {
+/// Starts the bridge: spawns the source poller, binds, and serves until the
+/// server stops. `on_bind_failed` is invoked exactly once when the bind fails
+/// (e.g. port already in use) so the caller can surface the failure natively;
+/// the app continues in browser-fallback mode either way.
+pub async fn run(on_bind_failed: impl FnOnce(io::Error) + Send + 'static) {
     let (state, _) = BridgeState::new();
 
     source::spawn_poller(Arc::clone(&state));
@@ -92,12 +96,26 @@ pub async fn run() {
     let router = build_router(Arc::clone(&state));
 
     let addr = localhost_bind_addr();
-    match bind_bridge().await {
-        Ok(listener) => {
-            log::info!("[bridge] listening on http://{addr}");
-            serve(listener, router).await;
+    if let Some(listener) = run_with(bind_bridge(), on_bind_failed).await {
+        log::info!("[bridge] listening on http://{addr}");
+        serve(listener, router).await;
+    }
+}
+
+/// Bind-failure seam (spec 15): resolves the bind future, returning the
+/// listener on success and invoking `on_bind_failed` on error so the
+/// busy-port path is observable without a live Tauri app.
+async fn run_with(
+    bind: impl std::future::Future<Output = io::Result<tokio::net::TcpListener>>,
+    on_bind_failed: impl FnOnce(io::Error),
+) -> Option<tokio::net::TcpListener> {
+    match bind.await {
+        Ok(listener) => Some(listener),
+        Err(error) => {
+            log::error!("[bridge] failed to bind: {error}");
+            on_bind_failed(error);
+            None
         }
-        Err(error) => log::error!("[bridge] failed to bind {addr}: {error}"),
     }
 }
 
@@ -639,6 +657,41 @@ mod tests {
         let blocker = TcpListener::bind("127.0.0.1:0").await.unwrap();
         assert!(bind_bridge_at(blocker.local_addr().unwrap()).await.is_err());
         drop(blocker);
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)] // serializes with the fixed-PORT live binds above
+    async fn run_with_surfaces_bind_failure_instead_of_silent_return() {
+        let _guard = PORT_LOCK.lock().unwrap();
+        let blocker = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = blocker.local_addr().unwrap();
+
+        let reported = std::cell::Cell::new(None);
+        let listener = run_with(bind_bridge_at(addr), |error| {
+            reported.set(Some(error.kind()));
+        })
+        .await;
+
+        assert!(listener.is_none(), "no listener must escape a failed bind");
+        assert_eq!(
+            reported.get(),
+            Some(std::io::ErrorKind::AddrInUse),
+            "the failure hook must observe the real bind error"
+        );
+        drop(blocker);
+    }
+
+    #[tokio::test]
+    async fn run_with_returns_listener_and_skips_failure_hook_on_success() {
+        let probe = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = probe.local_addr().unwrap();
+        drop(probe);
+
+        let failed = std::cell::Cell::new(false);
+        let listener = run_with(bind_bridge_at(addr), |_| failed.set(true)).await;
+
+        assert!(listener.is_some(), "serving path must be unaffected");
+        assert!(!failed.get());
     }
 
     fn percent_encode(value: &str) -> String {

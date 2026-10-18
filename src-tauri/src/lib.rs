@@ -2,7 +2,18 @@ mod bridge;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    use tauri::Manager;
+
+    let mut builder = tauri::Builder::default();
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_focus();
+            }
+        }));
+    }
+    builder
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
@@ -13,7 +24,23 @@ pub fn run() {
                         .build(),
                 )?;
             }
-            tauri::async_runtime::spawn(bridge::run());
+            let bridge_handle = app.handle().clone();
+            tauri::async_runtime::spawn(bridge::run(move |error| {
+                use tauri_plugin_dialog::DialogExt;
+                log::error!(
+                    "[bridge] failed to bind 127.0.0.1:{}: {error}",
+                    bridge::PORT
+                );
+                bridge_handle
+                    .dialog()
+                    .message(format!(
+                        "Track detection could not start because port {} is already in use. \
+                         The app will continue without native detection (browser fallback).",
+                        bridge::PORT
+                    ))
+                    .title("Native detection unavailable")
+                    .show(|_| {});
+            }));
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 check_for_updates(handle).await;

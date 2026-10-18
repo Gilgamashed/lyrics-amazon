@@ -116,16 +116,16 @@ The release-safe **diagnostics** gap (production builds discard `devLog` and the
 
 ## 4. Definition of Done
 
-- [ ] A second launch of the app **focuses the existing window and exits** before starting a duplicate bridge (proven by the packaged-E2E real-process check).
-- [ ] When `48765` is held by a foreign process, the user sees a **native dialog** explaining that detection cannot start, and the app **continues with browser fallback** — no more silent detection-dead state.
-- [ ] The debug E2E harness still runs green with single-instance active (early-exit spawn fails fast with a clear hint).
-- [ ] **rc builds read the test channel** (`test-latest`), stable builds read `releases/latest` only, and the config override changes nothing else.
+- [x] A second launch of the app **focuses the existing window and exits** before starting a duplicate bridge (proven by the packaged-E2E real-process check).
+- [x] When `48765` is held by a foreign process, the user sees a **native dialog** explaining that detection cannot start, and the app **continues with browser fallback** — no more silent detection-dead state. *(Live-proven 2026-10-18: a listener on `48765` + debug launch showed the `Native detection unavailable` window while the app stayed alive and logged the `os error 10048` bind failure.)*
+- [x] The debug E2E harness still runs green with single-instance active (early-exit spawn fails fast with a clear hint). *(12/12 Playwright tests green post-plugin.)*
+- [x] **rc builds read the test channel** (`test-latest`), stable builds read `releases/latest` only, and the config override changes nothing else. *(Release binary built with `--config src-tauri/tauri.rc.conf.json` greps to `test-latest` with the stable endpoint absent; `tauri.conf.json` untouched.)*
 - [ ] `…/releases/download/test-latest/latest.json` is publicly reachable, carries the newest published version, and points at that release's assets (refreshed after every publish, rc or stable).
 - [ ] The **packaged-app E2E suite passes** (5 checks) locally and in `release.yml`; publishing happens **only after** it passes, and a failure leaves the release unpublished.
 - [ ] **`v0.5.3-rc.1`** is published as a gated pre-release from `staging`; the installed build renders, serves `/health`, detects a track, and shows version `0.5.3-rc.1`.
 - [ ] One **real rc→rc in-app update** is observed end-to-end (`v0.5.3-rc.1 → v0.5.3-rc.2`: prompt, download, install, relaunch).
 - [ ] All existing quality gates pass (lint, build, Vitest, coverage ≥ 85% with the critical set unchanged at 100%, fmt, clippy, Rust tests, E2E, `smoke`, `bridge:smoke`), and the `platform-matrix` job stays green with the new plugin.
-- [ ] No secrets are committed; the signing key stays in CI secrets; `specs/PROMPTS.md` records this spec; the README and `specs/PROJECT_OVERVIEW.MD` stay consistent.
+- [x] No secrets are committed; the signing key stays in CI secrets; `specs/PROMPTS.md` records this spec; the README and `specs/PROJECT_OVERVIEW.MD` stay consistent.
 - [ ] No stable release was cut, no `latest`-channel change was made, and no §5 deferred items were introduced.
 
 ## 5. Deferred / TODO

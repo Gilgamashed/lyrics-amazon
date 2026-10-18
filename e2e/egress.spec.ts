@@ -48,8 +48,18 @@ async function ensureBridge(): Promise<void> {
     stdio: 'ignore',
   });
   respawned = child;
+  let exited = false;
+  child.on('exit', (code) => {
+    exited = true;
+    console.error(`[egress] respawned bridge exited early (code ${code})`);
+  });
   const started = Date.now();
   for (;;) {
+    if (exited) {
+      throw new Error(
+        'respawned bridge exited before becoming healthy (single-instance lock or port 48765 likely held by another instance — close the running app / tauri dev and retry)'
+      );
+    }
     if (await isHealthy()) {
       if (child.pid) writeFileSync(PID_FILE, String(child.pid));
       return;

@@ -1,0 +1,10 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/Gilgamashed/lyrics-amazon/releases/download/test-latest/latest.json"
+      ]
+    }
+  }
+}

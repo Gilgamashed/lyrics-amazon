@@ -17,7 +17,7 @@ jobs:
   release:
     name: Build + publish (Windows)
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
         with:
@@ -60,8 +60,50 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Amazon Music Floating Lyrics ${{ github.ref_name }}"
-          releaseBody: "${{ contains(github.ref_name, '-') && 'Pre-release build for staging/testing only - not for general use. The in-app updater ignores pre-releases, so existing users will not be offered it automatically. Download the NSIS installer (`*-setup.exe`) below and run it; this is an unsigned build, so approve the Windows SmartScreen prompt (More info -> Run anyway).' || 'Download the NSIS installer (`*-setup.exe`) below and run it. This is an unsigned build: approve the Windows SmartScreen prompt (More info -> Run anyway). The app checks for updates on launch and prompts to install newer versions.' }}"
-          releaseDraft: false
+          releaseBody: "${{ contains(github.ref_name, '-') && 'Pre-release build for staging/testing only - not for general use. Testing builds auto-update through the dedicated test channel, so newer testing builds are offered in-app; stable users are unaffected because the stable updater ignores pre-releases. Download the NSIS installer (`*-setup.exe`) below and run it; this is an unsigned build, so approve the Windows SmartScreen prompt (More info -> Run anyway).' || 'Download the NSIS installer (`*-setup.exe`) below and run it. This is an unsigned build: approve the Windows SmartScreen prompt (More info -> Run anyway). The app checks for updates on launch and prompts to install newer versions.' }}"
+          releaseDraft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           generateReleaseNotes: true
           updaterJsonPreferNsis: true
+          args: ${{ contains(github.ref_name, '-') && '--config src-tauri/tauri.rc.conf.json' || '' }}
+
+      - name: Cache tauri-driver
+        uses: actions/cache@v4
+        with:
+          path: .driver
+          key: ${{ runner.os }}-tauri-driver-v2
+
+      - name: Install tauri-driver
+        shell: pwsh
+        run: |
+          if (-not (Test-Path .driver/bin/tauri-driver.exe)) {
+            cargo install tauri-driver --locked --root .driver
+          }
+
+      - name: Packaged-app E2E (release gate)
+        env:
+          TAURI_DRIVER: ${{ github.workspace }}/.driver/bin/tauri-driver.exe
+        run: npm run test:e2e:packaged
+
+      - name: Publish release (after packaged E2E passes)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${{ github.ref_name }}" --draft=false
+
+      - name: Refresh test channel (test-latest)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          gh release download "${{ github.ref_name }}" -p latest.json -O latest.json
+          gh release view test-latest *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload test-latest latest.json --clobber
+          } else {
+            gh release create test-latest latest.json --prerelease `
+              --title "Test channel (rolling)" `
+              --notes "Rolling pre-release that always serves the newest published latest.json so testing (rc) builds auto-update. Do not install the app from this release directly." `
+              --target "${{ github.sha }}"
+          }
+          $json = Get-Content latest.json -Raw | ConvertFrom-Json
+          Write-Host "test-latest now serves version $($json.version)"
