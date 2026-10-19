@@ -11,7 +11,7 @@ A standalone, desktop-style companion that shows the lyrics of whatever **Amazon
 - **Most Listened:** a local, restart-durable usage view with **Hot (last 5 days) / Month / Lifetime** tabs; a play counts only after **≥ 30 seconds** of real playback **from Amazon Music** (non-Amazon sessions and legacy unflagged records are excluded).
 - **One Options menu:** all customization — lyrics layout preset, backdrop, appearance (opacity/blur/font/palette), default sync offset, **Karaoke AI endpoint/model/key**, and a Most Listened reset — lives in a single menu.
 
-> Status: Phase 8 (Hardening & Release) — **MVP complete**; post-MVP packaging (`specs/09_SPEC_POSTMVP-APP-PACK.md`), the lyrics/UX minor patch (`specs/10_SPEC_POSTMVP-MIN-PATCH.md`), the critical lyrics-pipeline fix (`specs/11_SPEC_POSTMVP-LYRICS-PIPELINE-FIX.md`), the post-MVP UX redesign (`specs/12_SPEC_POSTMVP-UX-REDESIGN.md`), the live-core patch (detection/metadata/playback/lyrics, `specs/13_SPEC_POSTMVP-LIVE-CORE-PATCH.md`), and the lyrics-panel UX / provider-chain / AI-karaoke patch (`specs/14_SPEC_POSTMVP-LYRICS-UX-KARAOKE.md`), and the release-hardening patch (single instance, test update channel, packaged-app E2E, `specs/15_SPEC_POSTMVP-RELEASE-HARDENING.md`) are implemented on `dev` at version **0.5.3-rc.1**. See `specs/PROJECT_OVERVIEW.MD` for the roadmap and `specs/00_AI-SAFE.md` for the SpecDD scope rules.
+> Status: Phase 8 (Hardening & Release) — **MVP complete**; post-MVP packaging (`specs/09_SPEC_POSTMVP-APP-PACK.md`), the lyrics/UX minor patch (`specs/10_SPEC_POSTMVP-MIN-PATCH.md`), the critical lyrics-pipeline fix (`specs/11_SPEC_POSTMVP-LYRICS-PIPELINE-FIX.md`), the post-MVP UX redesign (`specs/12_SPEC_POSTMVP-UX-REDESIGN.md`), the live-core patch (detection/metadata/playback/lyrics, `specs/13_SPEC_POSTMVP-LIVE-CORE-PATCH.md`), and the lyrics-panel UX / provider-chain / AI-karaoke patch (`specs/14_SPEC_POSTMVP-LYRICS-UX-KARAOKE.md`), and the release-hardening patch (single instance, test update channel, packaged-app E2E, `specs/15_SPEC_POSTMVP-RELEASE-HARDENING.md`) are implemented on `dev` at version **0.5.3-rc.2**. See `specs/PROJECT_OVERVIEW.MD` for the roadmap and `specs/00_AI-SAFE.md` for the SpecDD scope rules.
 
 ## Prerequisites
 
@@ -186,7 +186,7 @@ npm run tauri:build
 
 ### Branching & Staging
 
-- **`dev`** — integration branch; every change lands here first and is validated by CI. Currently carries version **0.5.3-rc.1**.
+- **`dev`** — integration branch; every change lands here first and is validated by CI. Currently carries version **0.5.3-rc.2**.
 - **`staging`** — long-lived release-candidate branch where the in-progress version is staged (cut from `dev`, advanced by merging `dev` → `staging`). CI runs on its pushes too.
 - **`vX.Y.Z` tags** — cut from `staging` for a stable release; the tag workflow publishes a normal GitHub Release and the in-app updater offers it.
 - **`vX.Y.Z-rc.N` tags** — testing pre-releases. Any tag containing `-` publishes as a GitHub **pre-release** (e.g. `v0.5.3-rc.1`) and stays excluded from `releases/latest`; **rc builds instead auto-update through the rolling `test-latest` channel** (see below), so testers on the rc line receive each new rc automatically while stable installs are never offered one.
