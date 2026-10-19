@@ -76,10 +76,10 @@ This starts the Vite dev server, compiles the Rust core, opens the desktop windo
 | `npm run tauri:dev` | Run the Tauri desktop shell + native bridge in dev mode. |
 | `npm run tauri:build` | Build the Tauri desktop app. |
 | `npm run bridge:smoke` | Hit the running bridge over HTTP + WebSocket. |
-| `npm run test` | Run the Vitest unit/component suites (185 tests). |
+| `npm run test` | Run the Vitest unit/component suites (303 tests). |
 | `npm run test:coverage` | Run Vitest with the v8 coverage provider. |
 | `npm run coverage:report` | Combined FE + Rust coverage aggregation (gates: ≥ 85% lines overall, **100%** on the critical utilities). |
-| `npm run test:e2e` | Build UI + bridge, run the Playwright E2E suite (10 tests). |
+| `npm run test:e2e` | Build UI + bridge, run the Playwright E2E suite (13 tests). |
 
 ## Project Structure
 
@@ -135,6 +135,38 @@ A local, restart-durable usage view reached from the **Most Listened** toggle in
 - **Tabs:** **Hot** (last 5 days), **Month** (current month ranking), and **Lifetime** (all-time counts).
 - **Re-selection:** clicking a row re-displays that song's lyrics (replaces the removed search bar).
 - **Reset:** the **Options** menu and the panel both offer a **Reset Most Listened** action.
+
+## Local Data & Storage
+
+The app has **no account and no cloud sync**: everything it saves stays on your machine (the only network traffic is the provider-chain lyric requests through the bridge `/fetch` egress proxy, plus the update check). Persistence is deliberately small — the app itself writes only `localStorage` JSON (six versioned keys); the Rust core writes no data files at all (debug builds additionally append a log file, below).
+
+| Key (`localStorage`) | Module | Contents | How to reset |
+| :--- | :--- | :--- | :--- |
+| `lyrics-amazon:settings:v1` | `src/services/settingsStore.ts` | **Options**: opacity/blur, theme, font size, Karaoke/Full Sheet view, auto-scroll, backdrop, layout preset, sync offset | edited in place by the Options menu |
+| `lyrics-amazon:play-history:v1` | `src/services/playHistoryStore.ts` | **Most Listened**: per-song play timestamps (≥ 30 s, Amazon Music only) with title/artist/album and the album-art thumbnail (`data:` URL) | **Reset Most Listened** (Options menu or the panel) |
+| `lyrics-amazon:user-accepted-lyrics:v1` | `src/services/userLyricsStore.ts` | **Thumbs-up lyrics** — yes, they are saved: the full winning `LyricsData` (synced lines, plain text, annotations, provider) per `title\|artist`, preferred first on every later lookup | none in the UI (the store can clear per song) |
+| `lyrics-amazon:meta-overrides:v1` | `src/services/metaOverrideStore.ts` | **Fix** corrections (title/artist) per detected track, applied to future detections of that track | **Revert** on the Fix control |
+| `lyrics-amazon:ai-lyrics:v1` | `src/services/aiLyricsStore.ts` | Permanently saved `AI Sync` lyrics (plain text aligned by the AI karaoke pipeline) | none — pipeline currently dormant |
+| `lyrics-amazon:karaoke-ai:v1` | `src/services/karaokeAIConfigStore.ts` | Karaoke AI **endpoint + model only** — the API key is session-memory and is never written to disk | edited in Options |
+
+**Kept in memory only (lost on restart):**
+
+- **Recently played lyrics cache** — repeat-play lyrics are *not* persisted: `fetchLyrics` results sit in a **memory-only** cache (max 20 entries, 7-day TTL, `title|artist` key — see [Lyrics Cache](#lyrics-cache) above). A restart re-queries the provider chain; thumbs-upping a result is what makes it durable.
+- **AI / karaoke API key** — session-only by design (never on disk, never in the bundle).
+- **Window geometry** — position and size are not remembered; the window opens at its configured default size.
+- **Diagnostics** — release builds write **no log file at all**; `npm run tauri:dev` (debug builds) append to the log path below, and provider diagnostics print to the dev console only (`src/services/devLog.ts`).
+
+**Where it lives on disk (Windows):**
+
+| Path | What |
+| :--- | :--- |
+| `%LOCALAPPDATA%\com.lyrics.amazonmusic\EBWebView\Default\Local Storage\leveldb\` | The webview profile's `localStorage` — all six keys above, as JSON inside a Chromium leveldb. The packaged app's origin is `http://tauri.localhost`; `npm run tauri:dev` stores its `http://localhost:3000` entries in the same folder, while a plain `npm run dev` in a normal browser uses that browser's own profile instead. |
+| `%LOCALAPPDATA%\com.lyrics.amazonmusic\logs\Amazon Music Floating Lyrics.log` | Debug-build log only (created by `tauri:dev`/debug runs; release installs never write it). |
+| `%LOCALAPPDATA%\Amazon Music Floating Lyrics\` | The installed program itself (two `.exe` files) — the app writes no data here. |
+
+The remaining `EBWebView\` content (HTTP cache, cookies, GPU/shader caches) is standard WebView2 profile data maintained by Windows.
+
+**To wipe everything:** close the app and delete `%LOCALAPPDATA%\com.lyrics.amazonmusic` — settings, history and saved lyrics are rebuilt on the next launch (lyrics are simply re-fetched). Uninstalling does **not** remove this folder (the NSIS uninstaller deletes only the program directory), so the same folder is the full-reset step after uninstalling, too.
 
 ## AI Lyric Fallback
 
@@ -205,7 +237,7 @@ npm run tauri:build
 
 A workflow (`.github/workflows/ci.yml`) runs on every push to `dev` and `staging` and on pull requests:
 
-- **`quality-gates`** (Windows runner): `tsc --noEmit` lint, production build, the Vitest suite (299 tests), the combined ≥ 85% coverage gate, `cargo fmt --check`, `cargo clippy --all-targets`, 53 Rust tests, and the 12-test Playwright E2E suite (system Chrome is preinstalled on the runner — no bundled Chromium download).
+- **`quality-gates`** (Windows runner): `tsc --noEmit` lint, production build, the Vitest suite (303 tests), the combined ≥ 85% coverage gate, `cargo fmt --check`, `cargo clippy --all-targets`, 53 Rust tests, and the 13-test Playwright E2E suite (system Chrome is preinstalled on the runner — no bundled Chromium download).
 - **`platform-matrix`** (macOS + Ubuntu runners): `npm ci`, lint, build, and `cargo test` — the multi-platform validation cover (Ubuntu installs the Tauri system dependencies first).
 - The workflow is intentionally **secrets-free** (public runners, no signing) and caches the npm and Cargo build caches between runs.
 
@@ -215,12 +247,12 @@ A second workflow (`.github/workflows/release.yml`) runs when a `v*` tag is push
 
 Implemented in Phase 7 (`specs/07_SPEC_TESTING.md`), with the packaged-app gate added by `specs/15_SPEC_POSTMVP-RELEASE-HARDENING.md`. Four layers:
 
-- **Frontend (Vitest + jsdom + Testing Library):** `npm run test` runs 299 tests across provider-chain, service, component/state, and `App` suites. Covers LRC parsing, the lyric/AI/cache/bridge services, the ordered provider chain + per-provider extraction, the not-found state, thumbs feedback persistence, the playback state machine, the settings/play-history stores (incl. the ≥30s scoring rule), the redesigned panels (now-playing header, lyrics panel, Info panel, Most Listened, Options), network resiliency (timeouts, non-OK, malformed payloads), and UI contracts.
+- **Frontend (Vitest + jsdom + Testing Library):** `npm run test` runs 303 tests across provider-chain, service, component/state, and `App` suites. Covers LRC parsing, the lyric/AI/cache/bridge services, the ordered provider chain + per-provider extraction, the not-found state, thumbs feedback persistence, the playback state machine, the settings/play-history stores (incl. the ≥30s scoring rule), the redesigned panels (now-playing header, lyrics panel, Info panel, Most Listened, Options), network resiliency (timeouts, non-OK, malformed payloads), and UI contracts.
 - **Rust core (`cargo test`):** 53 tests in `src-tauri/src` — `NowPlaying` serde, metadata parsers (macOS `nowplaying-cli` / Linux `playerctl` fixtures run on Windows), the Amazon Music session-preference helpers, sanitizers, the poller, the single-instance/bridge bind-failure seam (`run_with`), and axum `/health`, `/now-playing`, `/ws`, `/fetch` integration incl. localhost-only CORS.
 - **E2E (Playwright):** `npm run test:e2e` builds the UI and the real bridge binary, spawns the bridge with a test-only mock now-playing source, and drives **system Chrome** (`channel: 'chrome'`; the bundled Chromium download is unreliable in this environment) through the connected and degraded paths — boot and detect the scripted Espresso track from the bridge, switch to the Most Listened view, track change via the bridge, unknown-track mapping in the header, real album art + app id, small-viewport chrome, the HTTP/WebSocket contract, the `/fetch` CORS-egress proxy, and fall-back to Browser (Media Session) when the bridge is killed. With single-instance active (spec 15), the harness fails fast: `global-setup` and the egress tests detect an early bridge exit instead of hanging.
 - **Packaged-app E2E (release gate):** `npm run test:e2e:packaged` (needs `cargo install tauri-driver` and a built `src-tauri/target/release/*-bridge.exe`; `msedgedriver` is auto-downloaded to `test-results/msedgedriver/`) launches the **release binary** through `tauri-driver` + WebView2 WebDriver and asserts 5 checks: `v<package.json>` version annotation, `/health` on 48765, the **Desktop (native)** badge + mock track title, second-launch single-instance exit (first instance stays healthy), and a quiet startup update check. It runs locally before every tag cut and in `release.yml` **between build and publish** (on the pinned `windows-2022` runner — see the CI section).
 
-**Coverage policy:** combined line coverage across frontend and Rust must be ≥ **85%** (hard gate), and the **critical utilities must be at 100%** (the critical set is defined and enforced in `scripts/coverage-report.ts`). Aggregation runs fresh Vitest coverage plus `cargo llvm-cov --json` in `scripts/coverage-report.ts`; it exits non-zero on either gate. Exclusions (spec-approved, enforced): `src/main.tsx`, `*.test.ts(x)`, `src/test/**`, `src-tauri/src/main.rs`, `src-tauri/build.rs`, `src-tauri/gen/**`. Latest result: **92.68%** combined (FE 96.50%, Rust 86.97%), all 16 critical files 100%.
+**Coverage policy:** combined line coverage across frontend and Rust must be ≥ **85%** (hard gate), and the **critical utilities must be at 100%** (the critical set is defined and enforced in `scripts/coverage-report.ts`). Aggregation runs fresh Vitest coverage plus `cargo llvm-cov --json` in `scripts/coverage-report.ts`; it exits non-zero on either gate. Exclusions (spec-approved, enforced): `src/main.tsx`, `*.test.ts(x)`, `src/test/**`, `src-tauri/src/main.rs`, `src-tauri/build.rs`, `src-tauri/gen/**`. Latest result: **92.99%** combined (FE 96.61%, Rust 87.41%), all 16 critical files 100%.
 
 **E2E bridge mock:** `BRIDGE_MOCK_SCRIPT=<json>` loads a scripted now-playing source used only by tests — an array of `{ "holdMs": number, "nowPlaying": NowPlaying }` steps, evaluated against cumulative elapsed time and looped (`e2e/fixtures/bridge-mock-script.json`). Unset, the bridge uses real OS detection with no behavior change.
 
