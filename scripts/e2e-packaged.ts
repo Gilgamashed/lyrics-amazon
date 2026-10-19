@@ -29,7 +29,7 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Builder, By, Capabilities, type WebDriver } from 'selenium-webdriver';
 
@@ -44,7 +44,6 @@ const PORT = 48765;
 const HEALTH = `http://127.0.0.1:${PORT}/health`;
 const WEBDRIVER_URL = 'http://127.0.0.1:4444/';
 const WEBVIEW2_CLIENT_GUID = '{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}';
-const EDGE_CLIENT_GUID = '{56EB18F8-B008-4CBD-B6D2-8C97FE7E9062}';
 
 function log(message: string): void {
   console.log(`[e2e-packaged] ${message}`);
@@ -92,22 +91,58 @@ function powershell(command: string): string {
   return (res.stdout ?? '').trim();
 }
 
-/** WebView2 evergreen runtime version, falling back to the Edge browser version. */
+function compareVersions(a: string, b: string): number {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i += 1) {
+    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+/**
+ * WebView2 evergreen runtime version. The authoritative source is the versioned
+ * directory under the WebView2 install root — the registry `EdgeUpdate\Clients`
+ * entries can be absent or (worse) hold the *Edge browser* version, which makes
+ * msedgedriver silently mis-match the runtime and fail with
+ * "DevToolsActivePort file doesn't exist".
+ */
 function resolveWebViewVersion(): string {
-  const registryReads = [
-    ` (Get-ItemProperty 'HKLM:\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\${WEBVIEW2_CLIENT_GUID}' -ErrorAction SilentlyContinue).pv`,
-    ` (Get-ItemProperty 'HKLM:\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\${EDGE_CLIENT_GUID}' -ErrorAction SilentlyContinue).pv`,
+  const installRoots = [
+    'C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application',
+    join(process.env.LOCALAPPDATA ?? '', 'Microsoft', 'EdgeWebView', 'Application'),
   ];
-  for (const read of registryReads) {
-    const version = powershell(read);
-    if (version && version !== 'null') return version;
+  for (const root of installRoots) {
+    if (!existsSync(root)) continue;
+    const versions = readdirSync(root).filter((name) => /^\d+(\.\d+){3}$/.test(name));
+    if (versions.length > 0) {
+      const version = versions.sort(compareVersions).at(-1) as string;
+      log(`WebView2 runtime ${version} (from ${root})`);
+      return version;
+    }
+  }
+  const registryReads: Array<[string, string]> = [
+    [`HKLM:\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\${WEBVIEW2_CLIENT_GUID}`, 'WebView2 runtime (HKLM)'],
+    [`HKLM:\\Microsoft\\EdgeUpdate\\Clients\\${WEBVIEW2_CLIENT_GUID}`, 'WebView2 runtime (HKLM 64-bit)'],
+    [`HKCU:\\Microsoft\\EdgeUpdate\\Clients\\${WEBVIEW2_CLIENT_GUID}`, 'WebView2 runtime (HKCU)'],
+  ];
+  for (const [key, label] of registryReads) {
+    const version = powershell(`(Get-ItemProperty '${key}' -ErrorAction SilentlyContinue).pv`);
+    if (version && version !== 'null') {
+      log(`WebView2 runtime ${version} (from registry: ${label})`);
+      return version;
+    }
   }
   const edge = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
   if (existsSync(edge)) {
     const version = powershell(`(Get-Item '${edge}').VersionInfo.ProductVersion`);
-    if (version) return version;
+    if (version) {
+      log(`falling back to the Edge browser version ${version} (no WebView2 runtime found)`);
+      return version;
+    }
   }
-  fail('could not determine the WebView2/Edge version from the registry; is WebView2 installed?');
+  fail('could not determine the WebView2/Edge version nor find a WebView2 install; is WebView2 installed?');
 }
 
 function ensureMsedgedriver(): string {
@@ -203,6 +238,7 @@ async function main(): Promise<void> {
 
   killPortOwner(PORT);
   killPortOwner(4444);
+  killPortOwner(4445);
 
   const msedgedriver = ensureMsedgedriver();
   const tauriDriverBin = resolveTauriDriver();
@@ -246,7 +282,24 @@ async function main(): Promise<void> {
   try {
     session = await new Builder().withCapabilities(capabilities).usingServer(WEBDRIVER_URL).build();
   } catch (error) {
-    fail(`could not create the WebDriver session: ${String(error)}\ntauri-driver stderr: ${driverErr}`);
+    // Decisive diagnostics for "DevToolsActivePort file doesn't exist": was the
+    // app alive, and did WebView2 write the port file anywhere under the
+    // user-data folder we isolated it to?
+    let diagnostics = '';
+    try {
+      const entries = readdirSync(WEBVIEW_DIR);
+      diagnostics += `\nwebview user-data dir: ${WEBVIEW_DIR}\n  entries: ${entries.join(', ') || '(empty)'}`;
+    } catch (readError) {
+      diagnostics += `\nwebview user-data dir unreadable: ${String(readError)}`;
+    }
+    const port = powershell(
+      `Get-ChildItem -LiteralPath '${WEBVIEW_DIR}' -Recurse -Force -Filter 'DevToolsActivePort' -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName`
+    );
+    diagnostics += `\nDevToolsActivePort: ${port || 'NOT FOUND'}`;
+    const exeName = basename(exe);
+    const tasks = spawnSync('tasklist', ['/FI', `IMAGENAME eq ${exeName}`], { encoding: 'utf8' }).stdout ?? '';
+    diagnostics += `\napp process (${exeName}): ${tasks.includes(exeName) ? 'running' : 'not running'}`;
+    fail(`could not create the WebDriver session: ${error}\ntauri-driver stderr: ${driverErr}${diagnostics}`);
   }
   driver = session;
 
