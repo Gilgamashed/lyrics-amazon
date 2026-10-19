@@ -42,6 +42,14 @@ describe('LyricsPanel', () => {
     expect(onUpdateWindowState).toHaveBeenCalledWith({ viewMode: 'sheet' });
   });
 
+  it('bounds its own height so the lyric surfaces can scroll', () => {
+    const { container } = renderPanel();
+    const panel = container.firstElementChild as HTMLElement;
+    expect(panel.className).toContain('h-full');
+    expect(panel.className).toContain('min-h-0');
+    expect(panel.className).toContain('overflow-hidden');
+  });
+
   it('renders the full sheet when the mode is sheet', () => {
     renderPanel({ windowState: makeWindowState({ viewMode: 'sheet' }) });
     expect(screen.getByPlaceholderText('Search within lyrics...')).toBeInTheDocument();

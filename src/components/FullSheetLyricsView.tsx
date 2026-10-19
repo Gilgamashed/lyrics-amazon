@@ -112,7 +112,10 @@ export const FullSheetLyricsView: React.FC<FullSheetLyricsViewProps> = ({
       </div>
 
       {/* Lyrics lines */}
-      <div className="flex-1 overflow-y-auto px-8 py-6 space-y-3 custom-scrollbar">
+      <div
+        className="flex-1 overflow-y-auto px-8 py-6 space-y-3 custom-scrollbar"
+        data-testid="sheet-scroller"
+      >
         {hasSynced
           ? lyrics.map((line) => {
               const isMatch = searchTerm && line.text.toLowerCase().includes(searchTerm.toLowerCase());

@@ -15,6 +15,47 @@ import { test, expect, type Page } from '@playwright/test';
 const header = (page: Page) => page.getByRole('banner');
 const trackTitle = (page: Page) => header(page).locator('h1');
 const LOOP_MS = 40_000;
+const LYRICS_STORE_KEY = 'lyrics-amazon:user-accepted-lyrics:v1';
+
+/**
+ * Seeds long, evenly spaced synced lyrics as user-accepted results so both
+ * lyric surfaces overflow the panel no matter which scripted track the bridge
+ * reports or where its clock is. Accepted lyrics win the lookup, so this is
+ * deterministic without network or playback timing.
+ */
+async function seedLongLyrics(page: Page) {
+  const make = (title: string, artist: string) => {
+    const syncedLyrics = Array.from({ length: 120 }, (_, i) => ({
+      id: `l${i}`,
+      startTimeMs: i * 2000,
+      text: `${title} lyric line ${i + 1}`,
+    }));
+    return {
+      songId: `seed-${title}`,
+      title,
+      artist,
+      album: '',
+      albumArt: '',
+      provider: 'LRCLIB',
+      syncedLyrics,
+      plainLyrics: syncedLyrics.map((line) => line.text).join('\n'),
+      annotations: [],
+    };
+  };
+
+  const store = {
+    'espresso|sabrina carpenter': make('Espresso', 'Sabrina Carpenter'),
+    'cruel summer|taylor swift': make('Cruel Summer', 'Taylor Swift'),
+    'city lights|unknown artist': make('City Lights', 'Unknown Artist'),
+  };
+
+  await page.addInitScript(
+    ([key, payload]: [string, Record<string, unknown>]) => {
+      window.localStorage.setItem(key, JSON.stringify(payload));
+    },
+    [LYRICS_STORE_KEY, store] as [string, Record<string, unknown>]
+  );
+}
 
 test.describe('Web UI against the native bridge', () => {
   test('boots and reflects the native bridge track', async ({ page }) => {
@@ -77,7 +118,10 @@ test.describe('Web UI against the native bridge', () => {
     );
   });
 
-  test('keeps the panel header and tabs visible at a small viewport', async ({ page }) => {
+  test('keeps the panel header and tabs visible while the full sheet scrolls', async ({
+    page,
+  }) => {
+    await seedLongLyrics(page);
     await page.setViewportSize({ width: 360, height: 560 });
     await page.goto('/');
 
@@ -86,15 +130,75 @@ test.describe('Web UI against the native bridge', () => {
     await expect(page.getByRole('button', { name: /Karaoke/ })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Full Sheet' })).toBeVisible();
 
-    // Both lyric surfaces own a visible scrollbar container.
-    await expect(page.locator('.custom-scrollbar').first()).toBeVisible();
-
-    // The panel header (with the tabs) stays pinned after scrolling the body.
     await page.getByRole('button', { name: 'Full Sheet' }).click();
-    const scroller = page.locator('.custom-scrollbar').first();
-    await scroller.evaluate((el) => {
-      el.scrollTop = el.scrollHeight;
-    });
+    const scroller = page.getByTestId('sheet-scroller');
+    const read = () =>
+      scroller.evaluate((el) => ({
+        top: el.scrollTop,
+        client: el.clientHeight,
+        scroll: el.scrollHeight,
+      }));
+
+    // The sheet owns a bounded, overflowing container (the bug made the panel
+    // grow to the full lyric height with no scrollbar at all).
+    await expect.poll(async () => (await read()).scroll).toBeGreaterThan((await read()).client);
+    await expect.poll(async () => (await read()).client).toBeLessThan(560);
+
+    // A real wheel gesture moves it.
+    await scroller.hover();
+    await page.mouse.wheel(0, 600);
+    await expect.poll(async () => (await read()).top).toBeGreaterThan(0);
+
+    // The panel header (with the tabs) and its footer stay pinned.
     await expect(page.getByRole('button', { name: 'Full Sheet' })).toBeInViewport();
+    await expect(page.getByText(/^Provider:/)).toBeInViewport();
+  });
+
+  test('follows the active karaoke line and yields to manual scrolling', async ({ page }) => {
+    await seedLongLyrics(page);
+    await page.goto('/');
+    await expect(trackTitle(page)).toBeVisible({ timeout: 20_000 });
+
+    const scroller = page.getByTestId('karaoke-scroller');
+    const activeLineInView = () =>
+      scroller.evaluate((el) => {
+        const active = el.querySelector('.glow-text');
+        if (!active) return false;
+        const a = active.getBoundingClientRect();
+        const c = el.getBoundingClientRect();
+        return a.top >= c.top - 1 && a.bottom <= c.bottom + 1;
+      });
+
+    // Auto-follow centers the line that the live playback clock is on.
+    await expect.poll(activeLineInView).toBe(true);
+
+    // Playback advances and the current line stays inside the visible area.
+    await page.waitForTimeout(1500);
+    await expect.poll(activeLineInView).toBe(true);
+
+    // Wheel in whichever direction can actually move, so the input registers.
+    const start = await scroller.evaluate((el) => ({
+      top: el.scrollTop,
+      max: el.scrollHeight - el.clientHeight,
+    }));
+    await scroller.hover();
+    await page.mouse.wheel(0, start.top > start.max / 2 ? -400 : 400);
+
+    // Manual scrolling pauses the follow and reveals the Follow control.
+    const follow = page.getByTestId('follow-active-line');
+    await expect(follow).toBeVisible();
+    const held = await scroller.evaluate((el) => el.scrollTop);
+    expect(held).not.toBe(start.top);
+
+    // Seeking elsewhere changes the active line but must not yank the view back.
+    const box = (await scroller.boundingBox())!;
+    await page.mouse.click(box.x + box.width / 2, box.y + 40);
+    await expect.poll(() => scroller.evaluate((el) => el.scrollTop)).toBe(held);
+    await expect(follow).toBeVisible();
+
+    // Follow re-centers the current line and clears the control.
+    await follow.click();
+    await expect(follow).toHaveCount(0);
+    await expect.poll(activeLineInView).toBe(true);
   });
 });

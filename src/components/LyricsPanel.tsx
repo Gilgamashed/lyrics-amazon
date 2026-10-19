@@ -74,7 +74,7 @@ export const LyricsPanel: React.FC<LyricsPanelProps> = ({
 
   return (
     <div
-      className={`relative flex flex-col rounded-2xl border border-white/15 overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.5)] ${themeClass}`}
+      className={`relative h-full min-h-0 flex flex-col rounded-2xl border border-white/15 overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.5)] ${themeClass}`}
       style={{
         width: `min(${layoutWidth}px, 100%)`,
         maxWidth: '100%',
@@ -270,7 +270,7 @@ export const LyricsPanel: React.FC<LyricsPanelProps> = ({
       )}
 
       {/* ─── Body: lyrics + Info drawer ─────────────────────────────────── */}
-      <div className="flex-1 flex overflow-hidden relative" style={{ minHeight: 360 }}>
+      <div className="flex-1 min-h-0 flex overflow-hidden relative">
         <div className="flex-1 h-full overflow-hidden">
           {windowState.viewMode === 'karaoke' ? (
             <KaraokeLyricsView

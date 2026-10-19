@@ -34,6 +34,50 @@ function lineP(text: string): HTMLElement {
   return screen.getByText(text).closest('p')!;
 }
 
+/**
+ * Renders the view with a real container + line metrics (jsdom reports zero
+ * layout) and a stubbed `scrollTo`, so the follow logic can be exercised:
+ * "Second lyric line" sits at y=300, "Third lyric line" at y=500, in a 200px
+ * tall viewport.
+ */
+function followHarness() {
+  const scrollTo = vi.fn();
+  Object.defineProperty(Element.prototype, 'scrollTo', {
+    value: scrollTo,
+    configurable: true,
+    writable: true,
+  });
+
+  const view = (currentTimeMs: number, autoScroll = true) => (
+    <KaraokeLyricsView
+      lyrics={lyrics}
+      currentTimeMs={currentTimeMs}
+      syncOffsetMs={0}
+      fontSize="medium"
+      autoScroll={autoScroll}
+      onSeek={vi.fn()}
+      onSelectAnnotation={vi.fn()}
+      annotations={makeLyrics().annotations}
+    />
+  );
+
+  const { rerender } = render(view(0));
+
+  const container = screen.getByTestId('karaoke-scroller');
+  Object.defineProperty(container, 'clientHeight', { value: 200, configurable: true });
+
+  for (const [text, offsetTop] of [
+    ['Second lyric line', 300],
+    ['Third lyric line', 500],
+  ] as Array<[string, number]>) {
+    const el = lineDiv(text);
+    Object.defineProperty(el, 'offsetTop', { value: offsetTop, configurable: true });
+    Object.defineProperty(el, 'offsetHeight', { value: 40, configurable: true });
+  }
+
+  return { rerender, container, scrollTo, view };
+}
+
 describe('KaraokeLyricsView', () => {
   it('shows the loading state while lyrics are being retrieved', () => {
     renderView({ lyrics: [], isLoading: true });
@@ -163,6 +207,53 @@ describe('KaraokeLyricsView', () => {
       writable: true,
     });
     renderView({ currentTimeMs: 3500, autoScroll: false });
+    expect(scrollTo).not.toHaveBeenCalled();
+  });
+
+  it('pauses the follow when the user scrolls away and resumes once the active line is back', () => {
+    const { rerender, container, scrollTo, view } = followHarness();
+
+    // First line starts -> follow centers "Second lyric line" (300 - 100 + 20).
+    rerender(view(3500));
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+
+    // The user scrolls to the top, leaving the active line out of view.
+    container.scrollTop = 0;
+    fireEvent.scroll(container);
+    expect(screen.getByTestId('follow-active-line')).toBeInTheDocument();
+
+    // A new line must not yank the view back while the user is browsing.
+    rerender(view(5000));
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+
+    // Scrolling the active line back into view re-engages the follow.
+    container.scrollTop = 400;
+    fireEvent.scroll(container);
+    expect(screen.queryByTestId('follow-active-line')).not.toBeInTheDocument();
+    expect(scrollTo).toHaveBeenLastCalledWith({ top: 420, behavior: 'smooth' });
+  });
+
+  it('re-centers the active line when the Follow control is pressed', () => {
+    const { rerender, container, scrollTo, view } = followHarness();
+
+    rerender(view(3500));
+    container.scrollTop = 0;
+    fireEvent.scroll(container);
+
+    fireEvent.click(screen.getByTestId('follow-active-line'));
+
+    expect(screen.queryByTestId('follow-active-line')).not.toBeInTheDocument();
+    expect(scrollTo).toHaveBeenLastCalledWith({ top: 220, behavior: 'smooth' });
+  });
+
+  it('never shows the Follow control while auto-scroll is off', () => {
+    const { rerender, container, scrollTo, view } = followHarness();
+
+    rerender(view(3500, false));
+    container.scrollTop = 0;
+    fireEvent.scroll(container);
+
+    expect(screen.queryByTestId('follow-active-line')).not.toBeInTheDocument();
     expect(scrollTo).not.toHaveBeenCalled();
   });
 });
