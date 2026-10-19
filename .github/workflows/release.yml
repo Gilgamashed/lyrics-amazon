@@ -16,7 +16,13 @@ permissions:
 jobs:
   release:
     name: Build + publish (Windows)
-    runs-on: windows-latest
+    # Pinned to windows-2022: on windows-2025 (windows-latest) WebView2 Runtime
+    # >=150 drops --remote-debugging-port on elevated hosts (GitHub runners run
+    # as administrator), so the packaged-app E2E gate can never create a
+    # WebDriver session ("DevToolsActivePort file doesn't exist"). Upstream:
+    # tauri-apps/wry#1782 and actions/runner-images#14738 (2022 image passes).
+    # Revisit once actions/runner-images#14738 is resolved.
+    runs-on: windows-2022
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4

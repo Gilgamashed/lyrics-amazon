@@ -202,6 +202,60 @@ async function isHealthy(): Promise<boolean> {
   }
 }
 
+/**
+ * Failure-path probe: launch the release exe standalone (exactly the env the
+ * WebDriver chain passes it) and report whether it can serve /health here at
+ * all, plus its exit code and any stderr (Rust panics print to stderr even
+ * though release builds have no logger). Distinguishes "the app cannot run on
+ * this machine" from "only the msedgedriver launch path fails".
+ */
+async function diagnoseStandaloneLaunch(exe: string): Promise<string> {
+  let report = '\n--- standalone launch probe ---';
+  try {
+    const child = spawn(exe, [], { env: appEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
+    let stderr = '';
+    child.stderr?.on('data', (chunk) => (stderr += String(chunk)));
+    let exitCode: number | null | undefined;
+    child.on('exit', (code) => {
+      exitCode = code;
+    });
+    let healthy = false;
+    const deadline = Date.now() + 20_000;
+    while (Date.now() < deadline) {
+      if (exitCode !== undefined) break;
+      if (await isHealthy()) {
+        healthy = true;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    report += `\napp served /health: ${healthy ? 'yes' : 'no'}`;
+    report += `\napp exit code: ${exitCode === undefined ? '(still running)' : exitCode}`;
+    if (stderr.trim()) report += `\napp stderr: ${stderr.trim()}`;
+    if (exitCode === undefined) {
+      spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
+      report += '\n(probe process killed)';
+    }
+  } catch (probeError) {
+    report += `\nprobe itself failed: ${String(probeError)}`;
+  }
+  return report;
+}
+
+/** Application event log entries mentioning the exe (crash reports). */
+function diagnoseEventLog(exeName: string): string {
+  try {
+    const events = powershell(
+      `Get-WinEvent -LogName Application -MaxEvents 300 -ErrorAction SilentlyContinue | ` +
+        `Where-Object { $_.Message -like '*${exeName}*' } | Select-Object -First 2 | ` +
+        `ForEach-Object { $_.LevelDisplayName + ': ' + ($_.Message -replace '\\s+', ' ').Substring(0, 300) }`
+    );
+    return events ? `\nrecent Application events:\n  ${events.replace(/\r?\n/g, '\n  ')}` : '';
+  } catch (logError) {
+    return `\nevent log read failed: ${String(logError)}`;
+  }
+}
+
 async function waitForHealthy(timeoutMs: number): Promise<void> {
   const started = Date.now();
   for (;;) {
@@ -299,6 +353,8 @@ async function main(): Promise<void> {
     const exeName = basename(exe);
     const tasks = spawnSync('tasklist', ['/FI', `IMAGENAME eq ${exeName}`], { encoding: 'utf8' }).stdout ?? '';
     diagnostics += `\napp process (${exeName}): ${tasks.includes(exeName) ? 'running' : 'not running'}`;
+    diagnostics += diagnoseEventLog(exeName);
+    diagnostics += await diagnoseStandaloneLaunch(exe);
     fail(`could not create the WebDriver session: ${error}\ntauri-driver stderr: ${driverErr}${diagnostics}`);
   }
   driver = session;
