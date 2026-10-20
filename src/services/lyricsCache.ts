@@ -1,4 +1,5 @@
 import { LyricsData, Song } from '../types/lyrics';
+import { identityKey } from './textNormalize';
 
 interface CacheEntry {
   data: LyricsData;
@@ -7,14 +8,27 @@ interface CacheEntry {
 
 const MAX_ENTRIES = 20;
 const TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const STORAGE_KEY = 'lyrics-amazon:lyrics-cache:v1';
 
 const cache = new Map<string, CacheEntry>();
 
-function cacheKey(song: Song): string {
-  return `${song.title.trim().toLowerCase()}|${song.artist.trim().toLowerCase()}`;
+let accessOrder: string[] = [];
+
+function storageAvailable(): boolean {
+  try {
+    return typeof localStorage !== 'undefined';
+  } catch {
+    return false;
+  }
 }
 
-let accessOrder: string[] = [];
+/**
+ * Keys are the normalized lookup identity (spec 16). The cache is persisted
+ * only from this version onward, so no legacy raw-key entries can exist.
+ */
+function cacheKey(song: Song): string {
+  return identityKey(song.title, song.artist);
+}
 
 function touch(key: string): void {
   accessOrder = accessOrder.filter((k) => k !== key);
@@ -30,6 +44,47 @@ function evictIfNeeded(): void {
   }
 }
 
+/** Mirrors the in-memory LRU into localStorage (quota-safe, best-effort). */
+function persist(): void {
+  if (!storageAvailable()) return;
+  try {
+    const mirror: Record<string, CacheEntry> = {};
+    for (const [key, entry] of cache) {
+      mirror[key] = entry;
+    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(mirror));
+  } catch {
+    // quota exceeded or storage disabled - cache stays memory-only
+  }
+}
+
+/** Rehydrates the bounded cache at startup so lookups hit locally even across restarts. */
+function hydrate(): void {
+  if (!storageAvailable()) return;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return;
+    const now = Date.now();
+    for (const [key, entry] of Object.entries(parsed as Record<string, unknown>)) {
+      if (!entry || typeof entry !== 'object') continue;
+      const candidate = entry as Partial<CacheEntry>;
+      if (typeof candidate.fetchedAt !== 'number') continue;
+      if (!candidate.data || typeof candidate.data !== 'object') continue;
+      if (now - candidate.fetchedAt > TTL_MS) continue;
+      if (cache.has(key)) continue;
+      cache.set(key, { data: candidate.data as LyricsData, fetchedAt: candidate.fetchedAt });
+      accessOrder.push(key);
+    }
+    evictIfNeeded();
+  } catch {
+    // corrupt payload - start empty
+  }
+}
+
+hydrate();
+
 export function getCachedLyrics(song: Song): LyricsData | null {
   const key = cacheKey(song);
   const entry = cache.get(key);
@@ -38,6 +93,7 @@ export function getCachedLyrics(song: Song): LyricsData | null {
   if (Date.now() - entry.fetchedAt > TTL_MS) {
     cache.delete(key);
     accessOrder = accessOrder.filter((k) => k !== key);
+    persist();
     return null;
   }
 
@@ -50,11 +106,18 @@ export function setCachedLyrics(song: Song, data: LyricsData): void {
   cache.set(key, { data, fetchedAt: Date.now() });
   touch(key);
   evictIfNeeded();
+  persist();
 }
 
 export function clearLyricsCache(): void {
   cache.clear();
   accessOrder = [];
+  if (!storageAvailable()) return;
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // ignore
+  }
 }
 
 export function getCacheStats(): { size: number; maxEntries: number } {

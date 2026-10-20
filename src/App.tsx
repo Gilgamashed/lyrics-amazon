@@ -330,15 +330,20 @@ export default function App() {
 
   const handleSelectSong = useCallback(
     (song: Song) => {
-      setCurrentSong(song);
+      // A manual fix applies to history re-selection too (spec 16 §3.3).
+      const override = getOverride(song.title, song.artist);
+      const resolved = override
+        ? { ...song, title: override.title, artist: override.artist }
+        : song;
+      setCurrentSong(resolved);
       setShowHistory(false);
       setHasOverride(false);
       lastProviderIndexRef.current = 0;
       setFeedbackState('none');
       scorerRef.current.reset();
-      setLyricsData(emptyLyricsData(song));
-      applySnapshot(0, detectionRef.current === 'browser', song.durationMs, false);
-      void loadLyrics(song, aiConfig);
+      setLyricsData(emptyLyricsData(resolved));
+      applySnapshot(0, detectionRef.current === 'browser', resolved.durationMs, false);
+      void loadLyrics(resolved, aiConfig);
     },
     [aiConfig, applySnapshot, loadLyrics]
   );
@@ -367,9 +372,11 @@ export default function App() {
 
   const handleApplyOverride = useCallback(
     (title: string, artist: string) => {
-      const key = lastDesktopTrackKeyRef.current;
-      if (!key) return;
-      setOverride(key, { title, artist });
+      const raw = lastNowPlayingRef.current;
+      if (!raw) return;
+      const detected = sanitizeMetadata(raw.title, raw.artist);
+      if (!detected) return;
+      setOverride(detected.title, detected.artist, { title, artist });
       setHasOverride(true);
       applyMetadata({ title, artist });
     },
@@ -377,14 +384,13 @@ export default function App() {
   );
 
   const handleRevertOverride = useCallback(() => {
-    const key = lastDesktopTrackKeyRef.current;
-    if (!key) return;
-    removeOverride(key);
-    setHasOverride(false);
     const raw = lastNowPlayingRef.current;
     if (!raw) return;
-    const metadata = sanitizeMetadata(raw.title, raw.artist);
-    if (metadata) applyMetadata(metadata);
+    const detected = sanitizeMetadata(raw.title, raw.artist);
+    if (!detected) return;
+    removeOverride(detected.title, detected.artist);
+    setHasOverride(false);
+    applyMetadata(detected);
   }, [applyMetadata]);
 
   // Keep the desktop bridge handler bound to the latest config without reconnecting
@@ -408,7 +414,7 @@ export default function App() {
       const detectedKey = trackKey(metadata.title, metadata.artist);
       if (detectedKey !== lastDesktopTrackKeyRef.current) {
         lastDesktopTrackKeyRef.current = detectedKey;
-        const override = getOverride(detectedKey);
+        const override = getOverride(metadata.title, metadata.artist);
         setHasOverride(Boolean(override));
         const song = resolveDesktopSong(nowPlaying, override ?? metadata);
         setCurrentSong(song);

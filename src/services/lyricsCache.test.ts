@@ -7,6 +7,8 @@ import {
   setCachedLyrics,
 } from './lyricsCache';
 
+const STORAGE_KEY = 'lyrics-amazon:lyrics-cache:v1';
+
 function makeSong(title: string, artist: string = 'Artist'): Song {
   return {
     id: `s-${title}`,
@@ -37,6 +39,7 @@ describe('lyricsCache', () => {
   afterEach(() => {
     clearLyricsCache();
     vi.useRealTimers();
+    vi.resetModules();
   });
 
   it('round-trips a payload keyed case/space-insensitively by title|artist', () => {
@@ -46,6 +49,13 @@ describe('lyricsCache', () => {
     expect(getCachedLyrics(makeSong('smooth operator', 'Sade'))).not.toBeNull();
     // Different artist misses.
     expect(getCachedLyrics(makeSong('smooth operator', 'Other'))).toBeNull();
+  });
+
+  it('maps decorated and clean readings to one normalized identity', () => {
+    setCachedLyrics(makeSong('Smooth Operator (Remastered 2011)', 'Sade'), makeData('Smooth Operator'));
+
+    expect(getCachedLyrics(makeSong('Smooth Operator', 'Sade'))).not.toBeNull();
+    expect(getCachedLyrics(makeSong('Smooth Operator [Explicit]', 'Sade'))).not.toBeNull();
   });
 
   it('slot-checks tunes sharing a title with different artists', () => {
@@ -99,5 +109,95 @@ describe('lyricsCache', () => {
     clearLyricsCache();
     expect(getCacheStats()).toEqual({ size: 0, maxEntries: 20 });
     expect(getCachedLyrics(makeSong('A'))).toBeNull();
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
+  it('mirrors writes into versioned local storage', () => {
+    setCachedLyrics(makeSong('Persisted'), makeData('Persisted'));
+    const raw = localStorage.getItem(STORAGE_KEY);
+    expect(raw).toBeTruthy();
+    expect(JSON.parse(raw as string)).toHaveProperty('persisted|artist');
+  });
+
+  it('hydrates the bounded cache across a simulated restart', async () => {
+    setCachedLyrics(makeSong('Survivor'), makeData('Survivor'));
+    expect(localStorage.getItem(STORAGE_KEY)).toBeTruthy();
+
+    // Drop the in-memory state only (storage survives a real restart).
+    vi.resetModules();
+    const fresh = await import('./lyricsCache');
+    expect(fresh.getCachedLyrics(makeSong('Survivor'))?.title).toBe('Survivor');
+    expect(fresh.getCacheStats().size).toBe(1);
+  });
+
+  it('drops expired entries while hydrating', async () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        'old|artist': { data: makeData('Old'), fetchedAt: Date.now() - 8 * 24 * 60 * 60 * 1000 },
+      })
+    );
+
+    vi.resetModules();
+    const fresh = await import('./lyricsCache');
+    expect(fresh.getCachedLyrics(makeSong('Old'))).toBeNull();
+    expect(fresh.getCacheStats().size).toBe(0);
+  });
+
+  it('ignores corrupt persisted payloads', async () => {
+    localStorage.setItem(STORAGE_KEY, 'not-json{{{');
+    vi.resetModules();
+    const fresh = await import('./lyricsCache');
+    expect(fresh.getCacheStats().size).toBe(0);
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ bad: { fetchedAt: 'nope' } }));
+    vi.resetModules();
+    const second = await import('./lyricsCache');
+    expect(second.getCacheStats().size).toBe(0);
+  });
+
+  it('is safe when storage is unavailable', async () => {
+    vi.resetModules();
+    vi.stubGlobal('localStorage', undefined);
+    try {
+      const fresh = await import('./lyricsCache');
+      expect(() => fresh.setCachedLyrics(makeSong('A'), makeData('A'))).not.toThrow();
+      expect(fresh.getCachedLyrics(makeSong('A'))).not.toBeNull();
+      expect(() => fresh.clearLyricsCache()).not.toThrow();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('treats a throwing localStorage access as unavailable', async () => {
+    const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      get() {
+        throw new Error('blocked');
+      },
+    });
+    try {
+      vi.resetModules();
+      const fresh = await import('./lyricsCache');
+      expect(fresh.getCacheStats().size).toBe(0);
+      expect(() => fresh.setCachedLyrics(makeSong('A'), makeData('A'))).not.toThrow();
+      expect(fresh.getCachedLyrics(makeSong('A'))).not.toBeNull();
+    } finally {
+      if (original) {
+        Object.defineProperty(globalThis, 'localStorage', original);
+      } else {
+        delete (globalThis as { localStorage?: unknown }).localStorage;
+      }
+    }
+  });
+
+  it('fails silently when a storage write throws', () => {
+    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('quota');
+    });
+    expect(() => setCachedLyrics(makeSong('A'), makeData('A'))).not.toThrow();
+    expect(getCachedLyrics(makeSong('A'))).not.toBeNull();
+    spy.mockRestore();
   });
 });

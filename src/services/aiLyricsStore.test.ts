@@ -63,6 +63,41 @@ describe('aiLyricsStore', () => {
     expect(getSavedAILyrics(makeSong('Two'))?.title).toBe('Two');
   });
 
+  it('maps decorated and clean readings to one normalized identity', () => {
+    saveAILyrics(
+      makeSong('Big Lots (Remastered 2011)', 'Artist'),
+      makeData('Big Lots', 'AI Sync')
+    );
+    expect(getSavedAILyrics(makeSong('Big Lots', 'Artist'))).not.toBeNull();
+    expect(getSavedAILyrics(makeSong('Big Lots [Explicit]', 'Artist'))).not.toBeNull();
+  });
+
+  it('dual-reads and lazily migrates legacy raw-key entries', () => {
+    const legacyKey = 'big lots (remastered 2011)|artist';
+    localStorage.setItem(
+      'lyrics-amazon:ai-lyrics:v1',
+      JSON.stringify({ [legacyKey]: makeData('Big Lots', 'AI Sync') })
+    );
+
+    // The normalized lookup uses the decorated reading's legacy key as fallback.
+    expect(
+      getSavedAILyrics(makeSong('Big Lots (Remastered 2011)', 'Artist'))
+    ).not.toBeNull();
+    // Subsequent clean lookups hit the migrated normalized entry.
+    expect(getSavedAILyrics(makeSong('Big Lots', 'Artist'))).not.toBeNull();
+    const stored = JSON.parse(localStorage.getItem('lyrics-amazon:ai-lyrics:v1') as string);
+    expect(stored).toHaveProperty('big lots|artist');
+    expect(stored).not.toHaveProperty(legacyKey);
+  });
+
+  it('writes through to the session cache', async () => {
+    const { getCachedLyrics, clearLyricsCache } = await import('./lyricsCache');
+    clearLyricsCache();
+    saveAILyrics(makeSong('Cached Too'), makeData('Cached Too', 'AI Sync'));
+    expect(getCachedLyrics(makeSong('Cached Too'))?.title).toBe('Cached Too');
+    clearLyricsCache();
+  });
+
   it('recovers from corrupt local storage', () => {
     localStorage.setItem('lyrics-amazon:ai-lyrics:v1', 'not-json{{{');
     expect(getSavedAILyrics(makeSong('One'))).toBeNull();

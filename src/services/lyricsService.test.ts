@@ -292,6 +292,69 @@ describe('fetchLyrics', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('orders accepted before saved AI before the session cache (canonical order)', async () => {
+    fetchMock.mockResolvedValue(
+      jsonOk({ syncedLyrics: '[00:01.00] Network line', plainLyrics: 'Network line' })
+    );
+    const { setCachedLyrics, clearLyricsCache } = await import('./lyricsCache');
+    clearLyricsCache();
+
+    // Cache-only: the cache answers without touching the network.
+    setCachedLyrics(SONG, makeAccepted('From cache'));
+    expect((await fetchLyrics(SONG))?.plainLyrics).toBe('From cache');
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    // Saved AI outranks the session cache.
+    const aiData: LyricsData = { ...makeAccepted('From saved AI'), provider: 'AI Sync' };
+    localStorage.setItem(
+      'lyrics-amazon:ai-lyrics:v1',
+      JSON.stringify({ 'random test track|test voice': aiData })
+    );
+    expect((await fetchLyrics(SONG))?.plainLyrics).toBe('From saved AI');
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    // Accepted outranks saved AI.
+    saveAcceptedLyrics(SONG, makeAccepted('From accepted'));
+    expect((await fetchLyrics(SONG))?.plainLyrics).toBe('From accepted');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('a saved karaoke result writes through and beats a stale cached plain result', async () => {
+    fetchMock.mockResolvedValue(jsonOk({ plainLyrics: 'Stale plain line' }));
+    const stale = await fetchLyrics(SONG, { useCache: false });
+    expect(stale?.provider).toBe('LRCLIB');
+    const { saveAILyrics } = await import('./aiLyricsStore');
+    const karaoke: LyricsData = {
+      ...makeAccepted('Fresh karaoke line'),
+      provider: 'AI Sync',
+      syncedLyrics: [{ id: 'k-0', startTimeMs: 0, text: 'Fresh karaoke line' }],
+    };
+    // Exactly what handleGenerateKaraoke does.
+    saveAILyrics(SONG, karaoke);
+    const { getCachedLyrics } = await import('./lyricsCache');
+    expect(getCachedLyrics(SONG)?.provider).toBe('AI Sync');
+    fetchMock.mockClear();
+
+    const result = await fetchLyrics(SONG);
+    expect(result?.provider).toBe('AI Sync');
+    expect(result?.syncedLyrics[0].text).toBe('Fresh karaoke line');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('a fresh accepted result wins over a stale cached entry in the same session', async () => {
+    fetchMock.mockResolvedValue(jsonOk({ plainLyrics: 'Stale plain line' }));
+    const stale = await fetchLyrics(SONG);
+    expect(stale?.plainLyrics).toBe('Stale plain line');
+    expect(fetchMock).toHaveBeenCalled();
+
+    saveAcceptedLyrics(SONG, makeAccepted('User-approved line'));
+    fetchMock.mockClear();
+
+    const result = await fetchLyrics(SONG);
+    expect(result?.plainLyrics).toBe('User-approved line');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('advances the chain when startFromIndex skips earlier providers', async () => {
     fetchMock.mockResolvedValue(
       jsonOk({

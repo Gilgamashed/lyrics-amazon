@@ -15,10 +15,11 @@ export interface FetchLyricsOptions {
 }
 
 /**
- * Retrieves lyrics from the in-memory cache, or fetches from the accepted store,
- * saved AI-synced lyrics, the provider chain, and the live AI fallback - in that
- * order.
+ * Resolves lyrics in the canonical local-first order (spec 16):
+ * accepted (user thumbs-up) -> saved AI (karaoke) -> session cache ->
+ * provider chain (LRCLIB, Lyrica, Genius) -> live AI -> not found.
  *
+ * Durable user decisions outrank the session cache inside one request.
  * Returns `null` when the entire chain yields nothing (genuine "lyrics not found").
  */
 export async function fetchLyrics(
@@ -27,6 +28,16 @@ export async function fetchLyrics(
 ): Promise<LyricsData | null> {
   const startFromIndex = options?.startFromIndex ?? 0;
   const useCache = options?.useCache !== false && startFromIndex === 0;
+
+  if (startFromIndex === 0) {
+    // User-accepted lyrics take top priority on a fresh lookup (thumbs-up).
+    const accepted = getAcceptedLyrics(song);
+    if (accepted) return accepted;
+
+    // Permanently saved AI-synced lyrics win future lookups over the chain.
+    const savedAi = getSavedAILyrics(song);
+    if (savedAi) return savedAi;
+  }
 
   if (useCache) {
     const cached = getCachedLyrics(song);
@@ -43,9 +54,9 @@ export async function fetchLyrics(
 }
 
 /**
- * Resolves lyrics through: accepted (user override) -> saved AI (karaoke AI,
- * which must win future lookups) -> provider chain (LRCLIB, Lyrica, Genius) ->
- * live AI -> not found.
+ * Resolves lyrics through the network stages only: provider chain
+ * (LRCLIB, Lyrica, Genius) -> live AI -> not found. Local stores are consulted
+ * by `fetchLyrics` before this runs.
  */
 async function fetchLyricsUncached(
   song: Song,
@@ -53,16 +64,6 @@ async function fetchLyricsUncached(
   startFromIndex = 0,
   signal?: AbortSignal
 ): Promise<LyricsData | null> {
-  // User-accepted lyrics take top priority on a fresh lookup (thumbs up override)
-  if (startFromIndex === 0) {
-    const accepted = getAcceptedLyrics(song);
-    if (accepted) return accepted;
-
-    // Permanently saved AI-synced lyrics win future lookups over the chain.
-    const savedAi = getSavedAILyrics(song);
-    if (savedAi) return savedAi;
-  }
-
   // Ordered provider chain before any live AI fallback
   const chain = await runProviderChain(song, startFromIndex, undefined, undefined, signal);
   if (chain.result) {

@@ -4,7 +4,7 @@ import App from './App';
 import { APP_VERSION } from './appVersion';
 import { fetchLyrics } from './services/lyricsService';
 import { recordPlay } from './services/playHistoryStore';
-import { trackKey } from './services/metaOverrideStore';
+import { setOverride, trackKey } from './services/metaOverrideStore';
 import { capturePlayback } from './services/captureService';
 import { alignPlainLyrics } from './services/karaokeAlignService';
 import { saveKaraokeAIConfig } from './services/karaokeAIConfigStore';
@@ -270,6 +270,37 @@ describe('App', () => {
     expect(await screen.findByText('Ranked Song opening')).toBeInTheDocument();
     // Selecting a song returns to the lyrics surface.
     expect(screen.queryByRole('button', { name: 'Lifetime' })).not.toBeInTheDocument();
+  });
+
+  it('applies a manual fix when a history song is re-selected', async () => {
+    // A fix recorded under the decorated reading must link to the clean one.
+    setOverride('Ranked Song (Remastered 2011)', 'Ranked Artist', {
+      title: 'Corrected Song',
+      artist: 'Ranked Artist',
+    });
+    recordPlay(
+      {
+        id: 'y',
+        title: 'Ranked Song',
+        artist: 'Ranked Artist',
+        album: '',
+        albumArt: '',
+        durationMs: 0,
+      },
+      'amazon',
+      Date.now()
+    );
+    vi.mocked(fetchLyrics).mockClear();
+    render(<App />);
+
+    fireEvent.click(screen.getByTitle('Most Listened'));
+    fireEvent.click(screen.getByText('Ranked Song'));
+
+    expect(await screen.findByText('Corrected Song opening')).toBeInTheDocument();
+    expect(vi.mocked(fetchLyrics)).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Corrected Song', artist: 'Ranked Artist' }),
+      expect.anything()
+    );
   });
 
   it('publishes media session metadata and honors play/pause/seek actions', async () => {
