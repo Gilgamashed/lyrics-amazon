@@ -1,6 +1,8 @@
 import { Song } from '../../types/lyrics';
 import { httpFetch } from '../httpClient';
 import { parseLrc } from '../lrcParser';
+import { normalizeQueryText } from '../textNormalize';
+import { passesIdentityGate } from '../matchScore';
 import { withTimeoutSignal } from './base';
 import { LyricsProviderResult } from './types';
 
@@ -99,8 +101,8 @@ export async function fetchLyrica(
   const empty: LyricsProviderResult = { hasSync: false, provider: 'Lyrica' };
   try {
     const url = `${LYRICA_BASE_URL}/lyrics/?artist=${encodeURIComponent(
-      song.artist
-    )}&song=${encodeURIComponent(song.title)}&timestamps=true`;
+      normalizeQueryText(song.artist)
+    )}&song=${encodeURIComponent(normalizeQueryText(song.title))}&timestamps=true`;
     const res = await httpFetch(url, { signal });
     if (!res.ok) {
       cleanup();
@@ -108,6 +110,17 @@ export async function fetchLyrica(
     }
     const payload = (await res.json()) as LyricaResponse;
     cleanup();
+    // When the deployment echoes the matched title/artist, verify the identity
+    // so a lookalike response never wins silently.
+    const echoedTitle = payload?.data?.title;
+    const echoedArtist = payload?.data?.artist;
+    if (
+      typeof echoedTitle === 'string' &&
+      echoedTitle.trim() &&
+      !passesIdentityGate(echoedTitle, echoedArtist ?? '', song.title, song.artist)
+    ) {
+      return empty;
+    }
     return toLyricaResult(payload) ?? empty;
   } catch {
     cleanup();

@@ -149,7 +149,8 @@ describe('fetchLyrics', () => {
     const lrclibUrl = fetchMock.mock.calls
       .map((c) => c[0] as string)
       .find((url) => url.includes('lrclib.net'));
-    expect(lrclibUrl).toContain('track_name=Random%20Test%20Track');
+    // Queries go out normalized (lowercase, noise-stripped) per spec 16.
+    expect(lrclibUrl).toContain('track_name=random%20test%20track');
     expect(lrclibUrl).toContain('duration=200');
   });
 

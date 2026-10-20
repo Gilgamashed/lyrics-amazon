@@ -114,8 +114,9 @@ describe('fetchLyrica', () => {
 
     const url = fetchMock.mock.calls[0][0] as string;
     expect(url.startsWith(`${LYRICA_BASE_URL}/lyrics/?`)).toBe(true);
-    expect(url).toContain('artist=Arijit%20Singh');
-    expect(url).toContain('song=Tum%20Hi%20Ho');
+    // Queries go out normalized (lowercase, noise-stripped) per spec 16.
+    expect(url).toContain('artist=arijit%20singh');
+    expect(url).toContain('song=tum%20hi%20ho');
     expect(url).toContain('timestamps=true');
   });
 
@@ -127,6 +128,45 @@ describe('fetchLyrica', () => {
     const result = await fetchLyrica(SONG);
     expect(result.hasSync).toBe(false);
     expect(result.plainLyrics).toBe('plain only');
+  });
+
+  it('rejects an echoed title/artist that fails the identity gate', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          status: 'success',
+          data: {
+            artist: 'Someone Else',
+            title: 'A Totally Different Song',
+            lyrics: 'wrong song lyrics',
+            hasTimestamps: false,
+          },
+        })
+      )
+    );
+    const result = await fetchLyrica(SONG);
+    expect(result.hasSync).toBe(false);
+    expect(result.plainLyrics).toBeUndefined();
+  });
+
+  it('accepts an echoed decorated title that passes the identity gate', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          status: 'success',
+          data: {
+            artist: 'Arijit Singh',
+            title: 'Tum Hi Ho (Remastered 2011)',
+            lyrics: 'first line\nsecond line',
+            hasTimestamps: false,
+          },
+        })
+      )
+    );
+    const result = await fetchLyrica(SONG);
+    expect(result.plainLyrics).toContain('first line');
   });
 
   it('returns an empty result on a non-ok response', async () => {

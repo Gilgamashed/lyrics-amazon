@@ -1,4 +1,5 @@
 import { Song, LyricsData, LyricLine, GeniusAnnotation, AIConfig } from '../types/lyrics';
+import { normalizeQueryText } from './textNormalize';
 
 const DEFAULT_TIMEOUT_MS = 20000;
 
@@ -57,7 +58,7 @@ function buildPrompt(song: Song): string {
   const durationSec = Math.max(1, Math.round(song.durationMs / 1000));
   return [
     `You are a synchronized-lyrics generator for the Amazon Music companion app.`,
-    `The user is playing "${song.title}" by ${song.artist} (album: ${song.album}).`,
+    `The user is playing "${normalizeQueryText(song.title)}" by ${normalizeQueryText(song.artist)} (album: ${normalizeQueryText(song.album)}).`,
     `Approximate track duration: ${durationSec} seconds.`,
     ``,
     `Return ONLY a single JSON object (no markdown, no commentary) with this shape:`,

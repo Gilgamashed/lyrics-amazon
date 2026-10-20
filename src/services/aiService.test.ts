@@ -154,8 +154,8 @@ describe('synthesizeLyrics', () => {
     const body = JSON.parse((init as RequestInit).body as string);
     expect(body.model).toBe('gpt-test');
     expect(body.messages).toHaveLength(2);
-    // The prompt must embed the song/duration rules.
-    expect(body.messages[1].content).toContain('Test Song');
+    // The prompt must embed the song/duration rules (title normalized per spec 16).
+    expect(body.messages[1].content).toContain('test song');
     expect(body.messages[1].content).toContain('180');
   });
 

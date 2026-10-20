@@ -1,9 +1,11 @@
 import { Song } from '../../types/lyrics';
 import { httpFetch } from '../httpClient';
-import { normalize, withTimeoutSignal } from './base';
+import { normalizeQueryText } from '../textNormalize';
+import { passesIdentityGate, similarity } from '../matchScore';
+import { withTimeoutSignal } from './base';
 import { LyricsProviderResult } from './types';
 
-interface GeniusHit {
+export interface GeniusHit {
   result?: {
     title?: string;
     path?: string;
@@ -117,7 +119,7 @@ function decode(raw: string): string {
     .trim();
 }
 
-function collectHits(payload: GeniusSearchResponse): GeniusHit[] {
+export function collectHits(payload: GeniusSearchResponse): GeniusHit[] {
   const response = payload?.response;
   if (!response) return [];
   if (Array.isArray(response.hits) && response.hits.length > 0) return response.hits;
@@ -125,6 +127,32 @@ function collectHits(payload: GeniusSearchResponse): GeniusHit[] {
     return response.sections.flatMap((section) => section.hits ?? []);
   }
   return response.hits ?? [];
+}
+
+/**
+ * Selects the best-matching hit: only identity-gate-passing candidates are
+ * considered and the highest similarity wins. No hit passing the gate means
+ * no result (the chain degrades instead of scraping the wrong song).
+ */
+export function pickBestHit(hits: GeniusHit[], song: Song): GeniusHit | null {
+  let best: GeniusHit | null = null;
+  let bestScore = -1;
+  for (const h of hits) {
+    const r = h.result || {};
+    if (!passesIdentityGate(r.title || '', r.primary_artist?.name || '', song.title, song.artist)) {
+      continue;
+    }
+    const titleScore = similarity(r.title || '', song.title);
+    const artistScore = r.primary_artist?.name
+      ? similarity(r.primary_artist.name, song.artist)
+      : 1;
+    const score = Math.min(titleScore, artistScore);
+    if (score > bestScore) {
+      bestScore = score;
+      best = h;
+    }
+  }
+  return best;
 }
 
 export async function fetchGenius(
@@ -135,7 +163,9 @@ export async function fetchGenius(
   const { signal, cleanup } = withTimeoutSignal(timeoutMs, externalSignal);
   const empty: LyricsProviderResult = { hasSync: false, provider: 'Genius' };
   try {
-    const q = encodeURIComponent(`${song.title} ${song.artist}`);
+    const q = encodeURIComponent(
+      `${normalizeQueryText(song.title)} ${normalizeQueryText(song.artist)}`
+    );
     const searchRes = await httpFetch(`https://genius.com/api/search/song?q=${q}`, {
       signal,
     });
@@ -149,22 +179,8 @@ export async function fetchGenius(
       cleanup();
       return empty;
     }
-    const normTitle = normalize(song.title);
-    const normArtist = normalize(song.artist);
-    let best = hits[0];
-    for (const h of hits) {
-      const r = h.result || {};
-      const t = normalize(r.title || '');
-      const a = normalize(r.primary_artist?.name || '');
-      if (
-        (t.includes(normTitle) && a.includes(normArtist)) ||
-        (normTitle.includes(t) && normArtist.includes(a))
-      ) {
-        best = h;
-        break;
-      }
-    }
-    const path = best.result?.path;
+    const best = pickBestHit(hits, song);
+    const path = best?.result?.path;
     if (!path) {
       cleanup();
       return empty;

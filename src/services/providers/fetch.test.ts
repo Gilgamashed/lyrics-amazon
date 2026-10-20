@@ -153,6 +153,54 @@ describe('fetchGenius', () => {
     expect(result.hasSync).toBe(false);
     expect(result.plainLyrics).toBeUndefined();
   });
+
+  it('rejects every hit that fails the identity gate (no hits[0] fallback)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          response: {
+            hits: [
+              {
+                result: {
+                  title: 'A Totally Different Song',
+                  primary_artist: { name: 'Someone Else' },
+                  path: '/someone-else-different-lyrics',
+                },
+              },
+            ],
+          },
+        })
+      )
+    );
+    const result = await fetchGenius(SONG);
+    expect(result.plainLyrics).toBeUndefined();
+  });
+
+  it('selects a decorated lookalike that passes the identity gate', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          response: {
+            hits: [
+              {
+                result: {
+                  title: 'Yesterday (Remastered 2011)',
+                  primary_artist: { name: 'The Beatles' },
+                  path: '/The-beatles-yesterday-lyrics',
+                },
+              },
+            ],
+          },
+        })
+      )
+      .mockResolvedValueOnce(textResponse(geniusPageHtml));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await fetchGenius(SONG);
+    expect(result.plainLyrics).toContain('all my troubles');
+  });
 });
 
 describe('fetchLrcLib', () => {
@@ -253,18 +301,40 @@ describe('fetchLrcLib', () => {
     expect(result.syncedLyrics?.[0].text).toBe('Named track');
   });
 
-  it('falls back to the first synced search result when the name does not match', async () => {
+  it('rejects every search result that fails the identity gate (no wrong-song fallback)', async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(jsonResponse({}, false, 404))
       .mockResolvedValueOnce(
         jsonResponse([
-          { id: 1, duration: 400, trackName: 'Other', artistName: 'Someone', syncedLyrics: '[00:02.00] Fallback synced' },
+          { id: 1, duration: 400, trackName: 'Completely Different', artistName: 'Someone Else', syncedLyrics: '[00:02.00] Wrong song' },
         ])
       );
     vi.stubGlobal('fetch', fetchMock);
 
     const result = await fetchLrcLib(SONG);
-    expect(result.syncedLyrics?.[0].text).toBe('Fallback synced');
+    expect(result.hasSync).toBe(false);
+    expect(result.plainLyrics).toBeUndefined();
+  });
+
+  it('accepts a decorated lookalike that passes the identity gate', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({}, false, 404))
+      .mockResolvedValueOnce(
+        jsonResponse([
+          {
+            id: 1,
+            duration: 400,
+            trackName: 'Yesterday (Remastered 2011)',
+            artistName: 'The Beatles',
+            syncedLyrics: '[00:02.00] Decorated match',
+          },
+        ])
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await fetchLrcLib(SONG);
+    expect(result.syncedLyrics?.[0].text).toBe('Decorated match');
   });
 });

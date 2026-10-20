@@ -1,7 +1,9 @@
 import { Song } from '../../types/lyrics';
 import { httpFetch } from '../httpClient';
 import { parseLrc } from '../lrcParser';
-import { normalize, withTimeoutSignal } from './base';
+import { normalizeQueryText } from '../textNormalize';
+import { passesIdentityGate, similarity } from '../matchScore';
+import { withTimeoutSignal } from './base';
 import { LyricsProviderResult } from './types';
 
 interface LrcLibTrack {
@@ -55,27 +57,44 @@ function toResult(track: LrcLibTrack): LyricsProviderResult | null {
   return null;
 }
 
+/** True when the track carries any identity field we can verify against. */
+function hasIdentityFields(t: LrcLibTrack): boolean {
+  return Boolean((t.trackName ?? '').trim() || (t.artistName ?? '').trim());
+}
+
 /**
  * `/api/get` needs an exact title/artist/duration match, so it 404s often.
- * When it misses, fall back to `/api/search` and pick the closest result by
- * duration (±3s), preferring one that carries synchronized timing.
+ * When it misses, fall back to `/api/search` and pick the best result:
+ * identity-gate first (never play a different song), then duration (±3s),
+ * then the highest similarity score, preferring one that carries timing.
+ * Candidates carrying no identity fields at all pass unverified.
  */
 function pickBest(tracks: LrcLibTrack[], song: Song, duration: number): LrcLibTrack | null {
-  const within = tracks.filter(
+  const matched = tracks.filter(
+    (t) => !hasIdentityFields(t) || passesIdentityGate(t.trackName ?? '', t.artistName ?? '', song.title, song.artist)
+  );
+  if (matched.length === 0) return null;
+
+  const within = matched.filter(
     (t) => typeof t.duration === 'number' && Math.abs((t.duration as number) - duration) <= 3
   );
   if (within.length > 0) {
     return within.find((t) => t.syncedLyrics) ?? within[0];
   }
 
-  const normTitle = normalize(song.title);
-  const normArtist = normalize(song.artist);
-  const named = tracks.find(
-    (t) => normalize(t.trackName ?? '') === normTitle && normalize(t.artistName ?? '') === normArtist
-  );
-  if (named) return named;
-
-  return tracks.find((t) => t.syncedLyrics) ?? tracks[0] ?? null;
+  let best: LrcLibTrack | null = null;
+  let bestScore = -1;
+  for (const t of matched) {
+    const score = Math.min(
+      similarity(t.trackName ?? '', song.title),
+      t.artistName ? similarity(t.artistName, song.artist) : 1
+    );
+    if (score > bestScore) {
+      bestScore = score;
+      best = t;
+    }
+  }
+  return best;
 }
 
 export async function fetchLrcLib(
@@ -87,22 +106,32 @@ export async function fetchLrcLib(
   const empty: LyricsProviderResult = { hasSync: false, provider: 'LRCLIB' };
   try {
     const duration = Math.round(song.durationMs / 1000);
+    const queryTitle = normalizeQueryText(song.title);
+    const queryArtist = normalizeQueryText(song.artist);
     const getUrl = `https://lrclib.net/api/get?track_name=${encodeURIComponent(
-      song.title
-    )}&artist_name=${encodeURIComponent(song.artist)}&duration=${duration}`;
+      queryTitle
+    )}&artist_name=${encodeURIComponent(queryArtist)}&duration=${duration}`;
 
     const getRes = await requestWithRetry(getUrl, signal);
     if (getRes.ok) {
       const data = (await getRes.json()) as LrcLibTrack;
-      const direct = toResult(data);
-      if (direct) {
-        cleanup();
-        return direct;
+      // The server matched exactly on the normalized strings; still verify the
+      // identity when the response carries it so a decorated lookalike never
+      // wins silently.
+      if (
+        !hasIdentityFields(data) ||
+        passesIdentityGate(data.trackName ?? '', data.artistName ?? '', song.title, song.artist)
+      ) {
+        const direct = toResult(data);
+        if (direct) {
+          cleanup();
+          return direct;
+        }
       }
     }
 
     const searchUrl = `https://lrclib.net/api/search?q=${encodeURIComponent(
-      `${song.title} ${song.artist}`
+      `${queryTitle} ${queryArtist}`
     )}`;
     const searchRes = await requestWithRetry(searchUrl, signal);
     cleanup();
