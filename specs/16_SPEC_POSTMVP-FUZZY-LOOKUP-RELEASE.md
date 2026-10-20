@@ -121,17 +121,17 @@ Testers ran the installed rc line (`v0.5.3-rc.3`) and returned `specs/Feedback03
 
 ## 4. Definition of Done
 
-- [ ] A decorated title/artist (`Song (Remastered 2011)`, `Song [Explicit]`, `Song feat. Artist X`, punctuation/case variants) resolves lyrics through the normalized query path, and the same decorated/clean readings map to **one local identity** (cache, accepted, saved AI, overrides).
-- [ ] Every provider result passes the identity gate; a wrong-identity candidate is **rejected** instead of played, the chain degrades to the next source, and an all-miss lookup ends in the genuine *"Lyrics not found"* state. The `MIN_IDENTITY_SCORE` boundary is covered by tests.
-- [ ] The normalized pipeline and `fastest-levenshtein` are the **only** additions to the text-matching surface; queries are built from normalized text across LRCLIB, Lyrica, Genius and the AI prompt.
-- [ ] The canonical **accepted → saved AI → cache → chain → live AI** order holds, saves write through to the cache, and a regression test proves **no online source is queried when a local result exists**.
-- [ ] Cached lyrics are **persisted and hydrated at startup** — after a restart, a previously seen track loads from cache without touching the network; legacy raw-key entries written by earlier versions still hit (dual-read), then migrate on write.
-- [ ] A manually fixed title/artist **links to the song being played across metadata variants**, applies on **all** playback paths (desktop, browser, Most Listened), survives restarts, and still reverts to the raw detection.
-- [ ] The main window **remembers position and size**: move/resize → quit → relaunch restores geometry; first run keeps the 800×600 default and an off-screen restore re-centers. No capability changes were needed (or they are documented here).
-- [ ] **`0.5.4`** is bumped across all three version files, tagged as **`v0.5.4` from `staging`**, and published **only after** the packaged-app E2E gate passes (`prerelease: false`, NSIS + MSI + `latest.json`).
-- [ ] `releases/latest` resolves to **`v0.5.4`** (stable jump `0.2.1 → 0.5.4` recorded), `test-latest` was refreshed by the publish, and an installed **`v0.5.3-rc.3` was observed auto-updating to `0.5.4` in-app**.
-- [ ] All existing quality gates pass (lint, build, Vitest, coverage ≥ 85% with the extended critical set at 100%, fmt, clippy, Rust tests, E2E, `smoke`, `bridge:smoke`, packaged E2E gate), with new tests covering normalization, scoring, store keys, load order and override linkage.
-- [ ] Exactly one new runtime dependency (`fastest-levenshtein`) is committed; **no secrets** are committed; `specs/PROMPTS.md` records this spec; the README and `specs/PROJECT_OVERVIEW.MD` stay consistent (including the flipped window-geometry claim).
+- [x] A decorated title/artist (`Song (Remastered 2011)`, `Song [Explicit]`, `Song feat. Artist X`, punctuation/case variants) resolves lyrics through the normalized query path, and the same decorated/clean readings map to **one local identity** (cache, accepted, saved AI, overrides).
+- [x] Every provider result passes the identity gate; a wrong-identity candidate is **rejected** instead of played, the chain degrades to the next source, and an all-miss lookup ends in the genuine *"Lyrics not found"* state. The `MIN_IDENTITY_SCORE` boundary is covered by tests.
+- [x] The normalized pipeline and `fastest-levenshtein` are the **only** additions to the text-matching surface; queries are built from normalized text across LRCLIB, Lyrica, Genius and the AI prompt.
+- [x] The canonical **accepted → saved AI → cache → chain → live AI** order holds, saves write through to the cache, and a regression test proves **no online source is queried when a local result exists**.
+- [x] Cached lyrics are **persisted and hydrated at startup** — after a restart, a previously seen track loads from cache without touching the network; legacy raw-key entries written by earlier versions still hit (dual-read), then migrate on write.
+- [x] A manually fixed title/artist **links to the song being played across metadata variants**, applies on **all** playback paths (desktop, browser, Most Listened), survives restarts, and still reverts to the raw detection.
+- [x] The main window **remembers position and size**: move/resize → quit → relaunch restores geometry; first run keeps the 800×600 default and an off-screen restore re-centers. No capability changes were needed (or they are documented here).
+- [x] **`0.5.4`** is bumped across all three version files, tagged as **`v0.5.4` from `staging`**, and published **only after** the packaged-app E2E gate passes (`prerelease: false`, NSIS + MSI + `latest.json`).
+- [x] `releases/latest` resolves to **`v0.5.4`** (stable jump `0.2.1 → 0.5.4` recorded), `test-latest` was refreshed by the publish, and an installed **`v0.5.3-rc.3` was observed auto-updating to `0.5.4` in-app**.
+- [x] All existing quality gates pass (lint, build, Vitest, coverage ≥ 85% with the extended critical set at 100%, fmt, clippy, Rust tests, E2E, `smoke`, `bridge:smoke`, packaged E2E gate), with new tests covering normalization, scoring, store keys, load order and override linkage.
+- [x] Exactly one new runtime dependency (`fastest-levenshtein`) is committed; **no secrets** are committed; `specs/PROMPTS.md` records this spec; the README and `specs/PROJECT_OVERVIEW.MD` stay consistent (including the flipped window-geometry claim).
 
 ## 5. Deferred / TODO
 
