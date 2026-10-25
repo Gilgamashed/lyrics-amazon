@@ -37,7 +37,11 @@ const NOISE_SEGMENT_PATTERNS: RegExp[] = [
 ];
 
 /** Trailing featuring credits: "feat. X", "ft. X", "featuring X" (bracketed or not). */
-const FEAT_CREDIT_RE = /\s*(?:[\(\[]\s*)?(?:feat|ft|featuring)\.?\s+[^\)\]]*[\)\]]?\s*$/i;
+const FEAT_CREDIT_RE =
+  /\s*(?:[\(\[]\s*)?(?:feat\.?|ft\.?|featuring)\.?\s+(?:[^(\[\])\]]+?)?(?:[\)\]]|$)\s*$/i;
+
+/** Unbracketed trailing "feat." with no artist following (e.g. "Song feat."). */
+const FEAT_TRAILING_ONLY_RE = /\s*(?:[-–—|,]\s*)?(?:feat\.?|ft\.?|featuring)\.?\s*$/i;
 
 /**
  * Unbracketed trailing release-noise suffixes: "Song - Remastered 2011",
@@ -66,6 +70,7 @@ export function stripReleaseNoise(text: string): string {
   }
   // Trailing featuring credits and unbracketed noise suffixes.
   out = out.replace(FEAT_CREDIT_RE, ' ');
+  out = out.replace(FEAT_TRAILING_ONLY_RE, ' ');
   out = out.replace(TRAILING_NOISE_RE, ' ');
   return out;
 }
@@ -74,14 +79,21 @@ export function stripReleaseNoise(text: string): string {
  * Normalizes free text to its lookup form: lowercase, accent-folded (NFD
  * combining-mark strip), release noise removed, punctuation collapsed to
  * single spaces, trimmed. Returns '' for blank input.
+ *
+ * Unicode-safe: letters and digits from any script are preserved (non-Latin
+ * titles like "東京事変" must remain searchable; spec 17 RC5).
  */
 export function normalizeQueryText(text: string): string {
-  return stripReleaseNoise(text)
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/\p{M}/gu, '')
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
+  const stripped = stripReleaseNoise(text);
+  const lower = stripped.toLowerCase();
+  // Fold combining diacritics where present (Latin, etc.).
+  const decomposed = lower.normalize('NFD');
+  const noDiacritics = decomposed.replace(/\p{M}+/gu, '');
+  // Recompose to NFC so Hangul/CJK stay in their canonical composed form.
+  const recomposed = noDiacritics.normalize('NFC');
+  // Keep word characters (letters/digits/underscore) from any Unicode script.
+  const spaced = recomposed.replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  return spaced;
 }
 
 /**
