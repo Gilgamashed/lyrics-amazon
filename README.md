@@ -11,7 +11,7 @@ A standalone, desktop-style companion that shows the lyrics of whatever **Amazon
 - **Most Listened:** a local, restart-durable usage view with **Hot (last 5 days) / Month / Lifetime** tabs; a play counts only after **≥ 30 seconds** of real playback **from Amazon Music** (non-Amazon sessions and legacy unflagged records are excluded).
 - **One Options menu:** all customization — lyrics layout preset, backdrop, appearance (opacity/blur/font/palette), default sync offset, **Karaoke AI endpoint/model/key**, and a Most Listened reset — lives in a single menu.
 
-> Status: Phase 8 (Hardening & Release) — **MVP complete**; post-MVP packaging (`specs/09_SPEC_POSTMVP-APP-PACK.md`), the lyrics/UX minor patch (`specs/10_SPEC_POSTMVP-MIN-PATCH.md`), the critical lyrics-pipeline fix (`specs/11_SPEC_POSTMVP-LYRICS-PIPELINE-FIX.md`), the post-MVP UX redesign (`specs/12_SPEC_POSTMVP-UX-REDESIGN.md`), the live-core patch (detection/metadata/playback/lyrics, `specs/13_SPEC_POSTMVP-LIVE-CORE-PATCH.md`), the lyrics-panel UX / provider-chain / AI-karaoke patch (`specs/14_SPEC_POSTMVP-LYRICS-UX-KARAOKE.md`), the release-hardening patch (single instance, test update channel, packaged-app E2E, `specs/15_SPEC_POSTMVP-RELEASE-HARDENING.md`), the fuzzy-lookup / local-first / window-geometry patch (`specs/16_SPEC_POSTMVP-FUZZY-LOOKUP-RELEASE.md`), and the diagnostics terminal / lookup recovery patch (`specs/17_SPEC_POSTMVP-DIAGNOSTICS-AND-LOOKUP-RECOVERY.md`) are implemented on `dev` at version **0.5.5-rc.1**. See `specs/PROJECT_OVERVIEW.MD` for the roadmap and `specs/00_AI-SAFE.md` for the SpecDD scope rules.
+> Status: Phase 8 (Hardening & Release) — **MVP complete**; post-MVP packaging (`specs/09_SPEC_POSTMVP-APP-PACK.md`), the lyrics/UX minor patch (`specs/10_SPEC_POSTMVP-MIN-PATCH.md`), the critical lyrics-pipeline fix (`specs/11_SPEC_POSTMVP-LYRICS-PIPELINE-FIX.md`), the post-MVP UX redesign (`specs/12_SPEC_POSTMVP-UX-REDESIGN.md`), the live-core patch (detection/metadata/playback/lyrics, `specs/13_SPEC_POSTMVP-LIVE-CORE-PATCH.md`), the lyrics-panel UX / provider-chain / AI-karaoke patch (`specs/14_SPEC_POSTMVP-LYRICS-UX-KARAOKE.md`), the release-hardening patch (single instance, test update channel, packaged-app E2E, `specs/15_SPEC_POSTMVP-RELEASE-HARDENING.md`), the fuzzy-lookup / local-first / window-geometry patch (`specs/16_SPEC_POSTMVP-FUZZY-LOOKUP-RELEASE.md`), and the diagnostics terminal / lookup recovery patch (`specs/17_SPEC_POSTMVP-DIAGNOSTICS-AND-LOOKUP-RECOVERY.md`) are implemented on `dev` at version **0.5.5-rc.2** (the incomplete `v0.5.5-rc.1` cut is superseded). See `specs/PROJECT_OVERVIEW.MD` for the roadmap and `specs/00_AI-SAFE.md` for the SpecDD scope rules.
 
 ## Prerequisites
 
@@ -76,7 +76,7 @@ This starts the Vite dev server, compiles the Rust core, opens the desktop windo
 | `npm run tauri:dev` | Run the Tauri desktop shell + native bridge in dev mode. |
 | `npm run tauri:build` | Build the Tauri desktop app. |
 | `npm run bridge:smoke` | Hit the running bridge over HTTP + WebSocket. |
-| `npm run test` | Run the Vitest unit/component suites (359 tests). |
+| `npm run test` | Run the Vitest unit/component suites (493 tests). |
 | `npm run test:coverage` | Run Vitest with the v8 coverage provider. |
 | `npm run coverage:report` | Combined FE + Rust coverage aggregation (gates: ≥ 85% lines overall, **100%** on the critical utilities). |
 | `npm run test:e2e` | Build UI + bridge, run the Playwright E2E suite (13 tests). |
@@ -108,11 +108,11 @@ specs/
 1. **User-accepted** — a result previously saved with thumbs up (`src/services/userLyricsStore.ts`, `localStorage`, normalized `title|artist` key).
 2. **Saved AI** results (`provider: "AI Sync"`, `src/services/aiLyricsStore.ts`).
 3. **Lyrics cache** — a result from an earlier lookup this install (`src/services/lyricsCache.ts`, `localStorage`, persisted across restarts).
-4. **Provider chain** — **LRCLIB → Lyrica → Genius** (`src/services/providers/*`). Each provider self-times-out via `AbortController` and degrades to the next on error/block/miss, so playback is never blocked. Titles/artists are normalized before every query (release noise such as `(Remastered 2011)`, `- Radio Edit`, `feat. …` is stripped) and candidates must pass a fuzzy identity check against the requested track. LRCLIB provides synchronized LRC; Lyrica provides synced lyrics; Genius is the plain-text fallback. All provider network I/O goes through a single egress layer (`src/services/httpClient.ts`) that fetches **direct-first** and **falls back to the local bridge `/fetch` proxy** when the production webview's CORS policy blocks the upstream.
+4. **Provider chain** — **LRCLIB → Lyrica → Genius** (`src/services/providers/*`). Each provider self-times-out via `AbortController` and degrades to the next on error/block/miss, so playback is never blocked. Titles/artists are normalized before every query (release noise such as `(Remastered 2011)`, `- Radio Edit`, `feat. …` is stripped; non-Latin scripts are preserved) and candidates must pass a fuzzy identity check against the requested track. Ordered query variants (full, title-only, artist+title) are tried in turn, an `Unknown Artist` never reaches the wire, and a known `"Artist - Title"` prefix/suffix is split before the query is built. A missing title produces an artist-only query instead of being dropped. Requests retry **429/500/502/503/504** with bounded backoff; a transient outage is classified as `transient-error` (never "not found") and the chain re-runs once before the UI offers **Retry**. Outcomes are `found | not-found | transient-error | gate-rejected`; `/api/get` is skipped when the player reports no duration or a duration outside LRCLIB's 1..3600 s window. LRCLIB provides synchronized LRC; Lyrica provides synced lyrics; Genius is the plain-text fallback. All provider network I/O goes through a single egress layer (`src/services/httpClient.ts`) that fetches **direct-first** and **falls back to the local bridge `/fetch` proxy** when the production webview's CORS policy blocks the upstream.
 5. **Live AI fallback** (currently inert — the in-app AI Options were deferred; see [AI Lyric Fallback](#ai-lyric-fallback)).
 
 - **Sync semantics:** the chain prefers the first **synchronized** result and keeps the first **plain-only** result as a fallback. Synchronized results drive **Karaoke**; plain-only results render in **Full Sheet** mode (the layout auto-switches view mode accordingly).
-- **Not found:** when all providers (+ AI, when configured) return nothing, the lyrics surface shows **"Lyrics not found"**. The previous fabricated sample-lyrics fallback has been removed from the automatic path.
+- **Not found / retry:** a genuine miss shows **"Lyrics not found"**. A transient provider outage shows **"Providers are temporarily unavailable"** with a **Retry** action, and an answer whose candidates all failed the identity gate shows **"Results did not match this track"** (also retryable). A 5xx is never reported as "Lyrics not found". The previous fabricated sample-lyrics fallback has been removed from the automatic path.
 - **Thumbs up:** persists the winning result locally (survives restarts, per `title|artist`) and is preferred on later lookups. **Thumbs down:** advances to the next provider in the chain; once exhausted it falls through to AI/not-found.
 - **Re-selection:** with the search bar removed, previously played songs are shown in the **Most Listened** view and can be re-selected there to re-display their lyrics.
 
@@ -128,6 +128,16 @@ Recently played song lyrics are cached **in `localStorage`** so repeat plays—a
 - **Bypass:** `fetchLyrics(song, { useCache: false })` skips both cache lookup and write; `fetchLyrics(song, { startFromIndex })` starts mid-chain (used by thumbs down).
 - Created in `src/services/lyricsCache.ts`; exports `getCachedLyrics`, `setCachedLyrics`, `clearLyricsCache`, `getCacheStats`.
 
+## Diagnostics Terminal
+
+The app ships an **in-app diagnostic console** for development and release-candidate builds (stable builds do not expose it). Open it with **Ctrl+Shift+D** or **Options → Open Debug Terminal**.
+
+- **What it records:** the raw bridge reading, the metadata admission decision (status/reason), track changes, manual fix apply/revert, lookup start/end, local-store hits, every provider request (URL, HTTP status, attempts, elapsed ms), identity-gate rejections with their title/artist scores, the chain outcome and user actions.
+- **Throttled by meaning:** the bridge republishes on every poll tick, so only identity changes are logged; a metadata decision is logged when the decision changes.
+- **Bounded and private:** a **2000-event in-memory ring buffer** (nothing is persisted to disk or sent anywhere). The overlay filters by level, scope and free text, supports auto-follow and Clear, and expands a row to its full JSON payload.
+- **Copy report:** exports the app version, platform information and the retained events as JSON for a bug report.
+- **Build gate:** enabled in development and `-rc`/`-beta`/`-alpha` builds, and forceable with `VITE_DEBUG_TERMINAL=1|0`. The terminal is implemented in `src/services/debugConsole.ts` and `src/components/DebugTerminal.tsx`.
+
 ## Most Listened
 
 A local, restart-durable usage view reached from the **Most Listened** toggle in the header.
@@ -140,7 +150,7 @@ A local, restart-durable usage view reached from the **Most Listened** toggle in
 
 ## Local Data & Storage
 
-The app has **no account and no cloud sync**: everything it saves stays on your machine (the only network traffic is the provider-chain lyric requests through the bridge `/fetch` egress proxy, plus the update check). Persistence is deliberately small — the app itself writes `localStorage` JSON (seven versioned keys) plus one native window-state file; debug builds additionally append a log file (below).
+The app has **no account and no cloud sync**: everything it saves stays on your machine (the only network traffic is the provider-chain lyric requests through the bridge `/fetch` egress proxy, plus the update check). Persistence is deliberately small — the app itself writes `localStorage` JSON (eight versioned keys) plus one native window-state file; debug builds additionally append a log file (below).
 
 | Key (`localStorage`) | Module | Contents | How to reset |
 | :--- | :--- | :--- | :--- |
@@ -149,13 +159,14 @@ The app has **no account and no cloud sync**: everything it saves stays on your 
 | `lyrics-amazon:user-accepted-lyrics:v1` | `src/services/userLyricsStore.ts` | **Thumbs-up lyrics** — yes, they are saved: the full winning `LyricsData` (synced lines, plain text, annotations, provider) per normalized `title\|artist`, preferred first on every later lookup | none in the UI (the store can clear per song) |
 | `lyrics-amazon:lyrics-cache:v1` | `src/services/lyricsCache.ts` | **Recently played lyrics cache** — latest lookup result per normalized `title\|artist` (max 20, 7-day TTL), persisted so restarts skip the provider chain | expires automatically; cleared by wiping the profile |
 | `lyrics-amazon:meta-overrides:v1` | `src/services/metaOverrideStore.ts` | **Fix** corrections (title/artist) per detected track, applied to future detections of that track | **Revert** on the Fix control |
+| `lyrics-amazon:artist-title-memory:v1` | `src/services/artistTitleMemory.ts` | **Artist-scoped title memory** — the title confirmed in the Fix dialog for an artist whose player reading has no title, so the next reading of that artist resolves without asking | **Revert** on the Fix control (also forgets the remembered title) |
 | `lyrics-amazon:ai-lyrics:v1` | `src/services/aiLyricsStore.ts` | Permanently saved `AI Sync` lyrics (plain text aligned by the AI karaoke pipeline) | none — pipeline currently dormant |
 | `lyrics-amazon:karaoke-ai:v1` | `src/services/karaokeAIConfigStore.ts` | Karaoke AI **endpoint + model only** — the API key is session-memory and is never written to disk | edited in Options |
 
 **Kept in memory only (lost on restart):**
 
 - **AI / karaoke API key** — session-only by design (never on disk, never in the bundle).
-- **Diagnostics** — release builds write **no log file at all**; `npm run tauri:dev` (debug builds) append to the log path below, and provider diagnostics print to the dev console only (`src/services/devLog.ts`).
+- **Diagnostics** — release builds write **no log file at all**; `npm run tauri:dev` (debug builds) append to the log path below. In development and rc builds the in-app **Debug Terminal** keeps the last 2000 events in memory (see [Diagnostics Terminal](#diagnostics-terminal)); provider and detection events are also mirrored to the developer console (`src/services/devLog.ts` → `debugConsole.ts`). Nothing is persisted by the terminal.
 
 **Remembered by the window manager:** position and size are restored on launch (native `tauri-plugin-window-state`, size + position only). If the saved geometry no longer intersects an attached monitor (e.g. a display was unplugged), the window re-centers on the primary monitor instead of opening off-screen.
 
@@ -163,7 +174,7 @@ The app has **no account and no cloud sync**: everything it saves stays on your 
 
 | Path | What |
 | :--- | :--- |
-| `%LOCALAPPDATA%\com.lyrics.amazonmusic\EBWebView\Default\Local Storage\leveldb\` | The webview profile's `localStorage` — all seven keys above, as JSON inside a Chromium leveldb. The packaged app's origin is `http://tauri.localhost`; `npm run tauri:dev` stores its `http://localhost:3000` entries in the same folder, while a plain `npm run dev` in a normal browser uses that browser's own profile instead. |
+| `%LOCALAPPDATA%\com.lyrics.amazonmusic\EBWebView\Default\Local Storage\leveldb\` | The webview profile's `localStorage` — all eight keys above, as JSON inside a Chromium leveldb. The packaged app's origin is `http://tauri.localhost`; `npm run tauri:dev` stores its `http://localhost:3000` entries in the same folder, while a plain `npm run dev` in a normal browser uses that browser's own profile instead. |
 | `%APPDATA%\com.lyrics.amazonmusic\.window-state.json` | Native window geometry (size + position) written by the Rust **window-state** plugin. |
 | `%LOCALAPPDATA%\com.lyrics.amazonmusic\logs\Amazon Music Floating Lyrics.log` | Debug-build log only (created by `tauri:dev`/debug runs; release installs never write it). |
 | `%LOCALAPPDATA%\Amazon Music Floating Lyrics\` | The installed program itself (two `.exe` files) — the app writes no data here. |
@@ -222,7 +233,7 @@ npm run tauri:build
 
 ### Branching & Staging
 
-- **`dev`** — integration branch; every change lands here first and is validated by CI. Currently carries version **0.5.4**.
+- **`dev`** — integration branch; every change lands here first and is validated by CI. Currently carries version **0.5.5-rc.2**.
 - **`staging`** — long-lived release-candidate branch where the in-progress version is staged (cut from `dev`, advanced by merging `dev` → `staging`). CI runs on its pushes too.
 - **`vX.Y.Z` tags** — cut from `staging` for a stable release; the tag workflow publishes a normal GitHub Release and the in-app updater offers it.
 - **`vX.Y.Z-rc.N` tags** — testing pre-releases. Any tag containing `-` publishes as a GitHub **pre-release** (e.g. `v0.5.3-rc.1`) and stays excluded from `releases/latest`; **rc builds instead auto-update through the rolling `test-latest` channel** (see below), so testers on the rc line receive each new rc automatically while stable installs are never offered one.
@@ -241,7 +252,7 @@ npm run tauri:build
 
 A workflow (`.github/workflows/ci.yml`) runs on every push to `dev` and `staging` and on pull requests:
 
-- **`quality-gates`** (Windows runner): `tsc --noEmit` lint, production build, the Vitest suite (359 tests), the combined ≥ 85% coverage gate, `cargo fmt --check`, `cargo clippy --all-targets`, 54 Rust tests, and the 13-test Playwright E2E suite (system Chrome is preinstalled on the runner — no bundled Chromium download).
+- **`quality-gates`** (Windows runner): `tsc --noEmit` lint, production build, the Vitest suite (493 tests), the combined ≥ 85% coverage gate, `cargo fmt --check`, `cargo clippy --all-targets`, 54 Rust tests, and the 14-test Playwright E2E suite (system Chrome is preinstalled on the runner — no bundled Chromium download).
 - **`platform-matrix`** (macOS + Ubuntu runners): `npm ci`, lint, build, and `cargo test` — the multi-platform validation cover (Ubuntu installs the Tauri system dependencies first).
 - The workflow is intentionally **secrets-free** (public runners, no signing) and caches the npm and Cargo build caches between runs.
 
@@ -251,12 +262,12 @@ A second workflow (`.github/workflows/release.yml`) runs when a `v*` tag is push
 
 Implemented in Phase 7 (`specs/07_SPEC_TESTING.md`), with the packaged-app gate added by `specs/15_SPEC_POSTMVP-RELEASE-HARDENING.md`. Four layers:
 
-- **Frontend (Vitest + jsdom + Testing Library):** `npm run test` runs 359 tests across provider-chain, service, component/state, and `App` suites. Covers LRC parsing, the lyric/AI/cache/bridge services, the ordered provider chain + per-provider extraction, the not-found state, thumbs feedback persistence, the playback state machine, the settings/play-history stores (incl. the ≥30s scoring rule), the redesigned panels (now-playing header, lyrics panel, Info panel, Most Listened, Options), network resiliency (timeouts, non-OK, malformed payloads), and UI contracts.
+- **Frontend (Vitest + jsdom + Testing Library):** `npm run test` runs **493 tests across 38 files** (provider-chain, service, component/state, and `App` suites). Covers LRC parsing, the lyric/AI/cache/bridge services, the ordered provider chain + per-provider extraction, the not-found/transient/gate-rejected states, the diagnostics ring buffer/terminal, query variants and the tiered identity gate, retry/backoff and outcome classification, metadata admission (missing/placeholder/duplicate titles), the artist-scoped title memory, the playback state machine, the settings/play-history stores (incl. the ≥30s scoring rule), the redesigned panels (now-playing header, lyrics panel, Info panel, Most Listened, Options), network resiliency (timeouts, non-OK, malformed payloads), and UI contracts.
 - **Rust core (`cargo test`):** 54 tests in `src-tauri/src` — `NowPlaying` serde, metadata parsers (macOS `nowplaying-cli` / Linux `playerctl` fixtures run on Windows), the Amazon Music session-preference helpers, sanitizers, the poller, the single-instance/bridge bind-failure seam (`run_with`), the off-screen window geometry guard, and axum `/health`, `/now-playing`, `/ws`, `/fetch` integration incl. localhost-only CORS.
-- **E2E (Playwright):** `npm run test:e2e` builds the UI and the real bridge binary, spawns the bridge with a test-only mock now-playing source, and drives **system Chrome** (`channel: 'chrome'`; the bundled Chromium download is unreliable in this environment) through the connected and degraded paths — boot and detect the scripted Espresso track from the bridge, switch to the Most Listened view, track change via the bridge, unknown-track mapping in the header, real album art + app id, small-viewport chrome, the HTTP/WebSocket contract, the `/fetch` CORS-egress proxy, and fall-back to Browser (Media Session) when the bridge is killed. With single-instance active (spec 15), the harness fails fast: `global-setup` and the egress tests detect an early bridge exit instead of hanging.
+- **E2E (Playwright):** `npm run test:e2e` builds the UI and the real bridge binary, spawns the bridge with a test-only mock now-playing source, and drives **system Chrome** (`channel: 'chrome'`; the bundled Chromium download is unreliable in this environment) through its **14** connected and degraded paths — boot and detect the scripted Espresso track from the bridge, switch to the Most Listened view, track change via the bridge, unknown-track mapping in the header, real album art + app id, small-viewport chrome, the **Debug Terminal** (Ctrl+Shift+D and the Options entry, with the recorded detection), the HTTP/WebSocket contract, the `/fetch` CORS-egress proxy, and fall-back to Browser (Media Session) when the bridge is killed. With single-instance active (spec 15), the harness fails fast: `global-setup` and the egress tests detect an early bridge exit instead of hanging.
 - **Packaged-app E2E (release gate):** `npm run test:e2e:packaged` (needs `cargo install tauri-driver` and a built `src-tauri/target/release/*-bridge.exe`; `msedgedriver` is auto-downloaded to `test-results/msedgedriver/`) launches the **release binary** through `tauri-driver` + WebView2 WebDriver and asserts 5 checks: `v<package.json>` version annotation, `/health` on 48765, the **Desktop (native)** badge + mock track title, second-launch single-instance exit (first instance stays healthy), and a quiet startup update check. It runs locally before every tag cut and in `release.yml` **between build and publish** (on the pinned `windows-2022` runner — see the CI section).
 
-**Coverage policy:** combined line coverage across frontend and Rust must be ≥ **85%** (hard gate), and the **critical utilities must be at 100%** (the critical set is defined and enforced in `scripts/coverage-report.ts`). Aggregation runs fresh Vitest coverage plus `cargo llvm-cov --json` in `scripts/coverage-report.ts`; it exits non-zero on either gate. Exclusions (spec-approved, enforced): `src/main.tsx`, `*.test.ts(x)`, `src/test/**`, `src-tauri/src/main.rs`, `src-tauri/build.rs`, `src-tauri/gen/**`. Latest result: **92.51%** combined (FE 96.84%, Rust 85.22%), all 19 critical files 100%.
+**Coverage policy:** combined line coverage across frontend and Rust must be ≥ **85%** (hard gate), and the **critical utilities must be at 100%** (the critical set is defined and enforced in `scripts/coverage-report.ts`). Aggregation runs fresh Vitest coverage plus `cargo llvm-cov --json` in `scripts/coverage-report.ts`; it exits non-zero on either gate. Exclusions (spec-approved, enforced): `src/main.tsx`, `*.test.ts(x)`, `src/test/**`, `src-tauri/src/main.rs`, `src-tauri/build.rs`, `src-tauri/gen/**`. Latest result: **93.22%** combined (FE 95.91%, Rust 87.03%), all **24** critical files 100%.
 
 **E2E bridge mock:** `BRIDGE_MOCK_SCRIPT=<json>` loads a scripted now-playing source used only by tests — an array of `{ "holdMs": number, "nowPlaying": NowPlaying }` steps, evaluated against cumulative elapsed time and looped (`e2e/fixtures/bridge-mock-script.json`). Unset, the bridge uses real OS detection with no behavior change.
 
