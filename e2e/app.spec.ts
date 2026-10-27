@@ -144,8 +144,14 @@ test.describe('Web UI against the native bridge', () => {
     await expect.poll(async () => (await read()).scroll).toBeGreaterThan((await read()).client);
     await expect.poll(async () => (await read()).client).toBeLessThan(560);
 
-    // A real wheel gesture moves it.
-    await scroller.hover();
+    // A real wheel gesture moves it. Aim at the container's centre rather than
+    // using locator.hover(): the bridge can switch tracks mid-test, which
+    // detaches and re-creates the scroller while hover is waiting for stability.
+    const box = await scroller.boundingBox();
+    expect(box).not.toBeNull();
+    if (box) {
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    }
     await page.mouse.wheel(0, 600);
     await expect.poll(async () => (await read()).top).toBeGreaterThan(0);
 
@@ -200,5 +206,28 @@ test.describe('Web UI against the native bridge', () => {
     await follow.click();
     await expect(follow).toHaveCount(0);
     await expect.poll(activeLineInView).toBe(true);
+  });
+
+  // Spec 17 (W1): the diagnostics terminal records what the app decided.
+  test('opens the debug terminal and records the native detection', async ({ page }) => {
+    await page.goto('/');
+    await expect(trackTitle(page)).toBeVisible({ timeout: 20_000 });
+
+    // Closed by default, opened with Ctrl+Shift+D.
+    await expect(page.getByTestId('debug-terminal')).toHaveCount(0);
+    await page.keyboard.press('Control+Shift+D');
+    const terminal = page.getByTestId('debug-terminal');
+    await expect(terminal).toBeVisible();
+
+    // The raw bridge reading and the metadata decision are both recorded.
+    await expect(terminal).toContainText('now-playing');
+    await expect(terminal).toContainText('reading-accepted');
+
+    // The Options menu offers the same surface.
+    await page.keyboard.press('Control+Shift+D');
+    await expect(page.getByTestId('debug-terminal')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Options' }).click();
+    await page.getByTestId('options-open-debug').click();
+    await expect(page.getByTestId('debug-terminal')).toBeVisible();
   });
 });

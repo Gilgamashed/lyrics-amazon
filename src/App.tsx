@@ -31,14 +31,22 @@ import {
   resolveDuration,
   ClockAnchor,
 } from './services/playbackClock';
-import { sanitizeMetadata, SanitizedMetadata } from './services/metadataSanitizer';
+import { sanitizeMetadata, inspectMetadata, SanitizedMetadata } from './services/metadataSanitizer';
 import { getOverride, setOverride, removeOverride, trackKey } from './services/metaOverrideStore';
+import {
+  forgetArtistTitle,
+  getArtistTitle,
+  rememberArtistTitle,
+} from './services/artistTitleMemory';
 import { LatestRequest } from './services/latestRequest';
+import { LookupOutcome } from './services/lookupOutcome';
+import { debugLog, isDebugConsoleEnabled } from './services/debugConsole';
 import { NowPlayingHeader } from './components/NowPlayingHeader';
 import { LyricsPanel } from './components/LyricsPanel';
 import { MostListenedPanel } from './components/MostListenedPanel';
 import { BackgroundBackdrop } from './components/BackgroundBackdrop';
 import { OptionsMenu } from './components/OptionsMenu';
+import { DebugTerminal } from './components/DebugTerminal';
 import { APP_VERSION } from './appVersion';
 
 const PROVIDER_ORDER: LyricsData['provider'][] = [...DEFAULT_PROVIDER_ORDER];
@@ -82,14 +90,23 @@ function resolveDesktopSong(nowPlaying: NowPlaying, metadata: SanitizedMetadata)
   const { durationMs } = resolveDuration(nowPlaying.durationMs);
 
   return {
-    id: `desktop-${slug(title)}-${slug(artist)}`,
+    id: `desktop-${slug(title || artist || 'unknown')}-${slug(artist)}`,
+    // The real title is kept (it may be empty): the provider query must never
+    // carry a display placeholder (spec 17, W4).
     title,
     artist,
     album: nowPlaying.album?.trim() || 'Amazon Music',
     albumArt: nowPlaying.albumArt ?? '',
     durationMs,
-    amazonMusicUrl: `https://music.amazon.com/search/${encodeURIComponent(`${title} ${artist}`)}`,
+    amazonMusicUrl: `https://music.amazon.com/search/${encodeURIComponent(
+      `${title || artist} ${artist}`.trim()
+    )}`,
     genre: 'Now Playing (Desktop)',
+    // The player did not report a usable title (spec 17, W2).
+    titleMissing: metadata.titleMissing,
+    // The original "Artist - Title" blob this identity was split from, so the
+    // lookup can also try the reversed pairing (spec 17, W4).
+    splitFrom: metadata.splitFrom,
   };
 }
 
@@ -98,6 +115,9 @@ export default function App() {
   const [lyricsData, setLyricsData] = useState<LyricsData>(() => emptyLyricsData(IDLE_SONG));
   const [isLoadingLyrics, setIsLoadingLyrics] = useState(false);
   const [feedbackState, setFeedbackState] = useState<FeedbackState>('none');
+  // How the last lookup ended (spec 17, W3). A transient provider failure is
+  // shown with a Retry action instead of "lyrics not found".
+  const [lookupOutcome, setLookupOutcome] = useState<LookupOutcome | undefined>(undefined);
   const lastProviderIndexRef = useRef(0);
   const latestRequestRef = useRef(new LatestRequest());
 
@@ -128,6 +148,23 @@ export default function App() {
   // Most Listened view state
   const [showHistory, setShowHistory] = useState(false);
   const [historyVersion, setHistoryVersion] = useState(0);
+
+  // In-app debug terminal (spec 17). Only available in dev and release
+  // candidate builds; stable builds never expose it.
+  const debugAvailable = isDebugConsoleEnabled();
+  const [debugOpen, setDebugOpen] = useState(false);
+
+  useEffect(() => {
+    if (!debugAvailable) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!event.ctrlKey || !event.shiftKey) return;
+      if (event.key !== 'D' && event.key !== 'd') return;
+      event.preventDefault();
+      setDebugOpen((prev) => !prev);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [debugAvailable]);
 
   // ─── Playback clock ─────────────────────────────────────────────────
   // The desktop bridge's NowPlaying.positionMs is authoritative; the local
@@ -198,7 +235,11 @@ export default function App() {
   const [bridgeStatus, setBridgeStatus] = useState<BridgeConnectionState>('connecting');
   const [detectedAppId, setDetectedAppId] = useState<string | null>(null);
   const [hasOverride, setHasOverride] = useState(false);
-  const lastDesktopTrackKeyRef = useRef<string | null>(null);
+  // The raw bridge identity last adopted. Manual fixes/reverts update the song
+  // in place, so a poll tick with the same raw identity must not re-process it
+  // (or undo a missing-title fix).
+  const lastDesktopRawKeyRef = useRef<string | null>(null);
+  const lastReadingKeyRef = useRef<string | null>(null);
   const lastNowPlayingRef = useRef<NowPlaying | null>(null);
   const desktopHandlerRef = useRef<(nowPlaying: NowPlaying) => void>(() => {});
 
@@ -224,6 +265,9 @@ export default function App() {
           aiConfig: config,
           startFromIndex,
           signal,
+          onOutcome: (outcome) => {
+            if (latestRequestRef.current.isCurrent(id)) setLookupOutcome(outcome);
+          },
         });
         if (!latestRequestRef.current.isCurrent(id)) return;
         if (data) {
@@ -247,13 +291,34 @@ export default function App() {
     if (lyricsData.syncedLyrics.length === 0 && !lyricsData.plainLyrics.trim()) return;
     saveAcceptedLyrics(currentSong, lyricsData);
     setFeedbackState('up');
+    debugLog('ui', 'action-thumbs-up', {
+      title: currentSong.title,
+      artist: currentSong.artist,
+      provider: lyricsData.provider,
+    });
   }, [currentSong, lyricsData]);
 
   const handleThumbsDown = useCallback(() => {
     const next = lastProviderIndexRef.current + 1;
     setFeedbackState('down');
+    debugLog('ui', 'action-thumbs-down', {
+      title: currentSong.title,
+      artist: currentSong.artist,
+      nextProviderIndex: next,
+    });
     void loadLyrics(currentSong, aiConfig, false, next);
   }, [currentSong, aiConfig, loadLyrics]);
+
+  // Retry a failed lookup (spec 17, W3). The cache is bypassed so a stale
+  // "not found" cannot be replayed, and the whole provider chain runs again.
+  const handleRetryLookup = useCallback(() => {
+    debugLog('ui', 'action-retry-lookup', {
+      title: currentSong.title,
+      artist: currentSong.artist,
+      previousOutcome: lookupOutcome,
+    });
+    void loadLyrics(currentSong, aiConfig, false);
+  }, [currentSong, aiConfig, loadLyrics, lookupOutcome]);
 
   // Capture the current playback, align it against the known plain lyrics, and
   // persist the merged result so it wins future lookups for this song.
@@ -375,10 +440,45 @@ export default function App() {
       const raw = lastNowPlayingRef.current;
       if (!raw) return;
       const detected = sanitizeMetadata(raw.title, raw.artist);
-      if (!detected) return;
-      setOverride(detected.title, detected.artist, { title, artist });
+      if (!detected) {
+        // A genuinely empty reading has no identity to key an override on, but
+        // the user's fix must still be able to run the search (spec 17, W2).
+        const rawEmpty = !(raw.title ?? '').trim() && !(raw.artist ?? '').trim();
+        if (rawEmpty && title.trim()) {
+          debugLog('override', 'override-applied-from-empty-reading', {
+            rawTitle: raw.title,
+            rawArtist: raw.artist,
+            title,
+            artist,
+          });
+          if (artist && title) {
+            rememberArtistTitle(artist, title);
+          }
+          setHasOverride(false);
+          applyMetadata({ title, artist, titleMissing: false });
+          return;
+        }
+        debugLog('override', 'override-rejected', {
+          rawTitle: raw.title,
+          rawArtist: raw.artist,
+          title,
+          artist,
+        }, 'warn');
+        return;
+      }
+      setOverride(detected.title || detected.artist, detected.artist, { title, artist });
       setHasOverride(true);
-      applyMetadata({ title, artist });
+      // The user's latest fix supersedes any remembered title for the raw
+      // artist; remember the confirmed artist -> title pair.
+      forgetArtistTitle(detected.artist);
+      if (artist && title) {
+        rememberArtistTitle(artist, title);
+      }
+      debugLog('override', 'override-applied', {
+        detected: `${detected.title || '(missing)'} | ${detected.artist}`,
+        applied: `${title} | ${artist}`,
+      });
+      applyMetadata({ title, artist, titleMissing: false });
     },
     [applyMetadata]
   );
@@ -387,11 +487,24 @@ export default function App() {
     const raw = lastNowPlayingRef.current;
     if (!raw) return;
     const detected = sanitizeMetadata(raw.title, raw.artist);
-    if (!detected) return;
-    removeOverride(detected.title, detected.artist);
+    if (!detected) {
+      debugLog('override', 'override-revert-failed', {
+        rawTitle: raw.title,
+        rawArtist: raw.artist,
+      }, 'warn');
+      return;
+    }
+    removeOverride(detected.title || detected.artist, detected.artist);
+    // A remembered title would silently re-apply the fix on the next poll
+    // tick; forgetting it is what makes Revert stick (spec 17, W2).
+    forgetArtistTitle(detected.artist);
+    forgetArtistTitle(currentSong.artist);
     setHasOverride(false);
+    debugLog('override', 'override-reverted', {
+      detected: `${detected.title || '(missing)'} | ${detected.artist}`,
+    });
     applyMetadata(detected);
-  }, [applyMetadata]);
+  }, [applyMetadata, currentSong.artist]);
 
   // Keep the desktop bridge handler bound to the latest config without reconnecting
   useEffect(() => {
@@ -404,32 +517,117 @@ export default function App() {
       const positionMs = typeof nowPlaying.positionMs === 'number' ? nowPlaying.positionMs : 0;
       const { durationMs, durationAuthoritative } = resolveDuration(nowPlaying.durationMs);
 
-      const metadata = sanitizeMetadata(nowPlaying.title, nowPlaying.artist);
-      if (!playing || !metadata) {
+      const inspection = inspectMetadata(nowPlaying.title, nowPlaying.artist);
+      // The bridge republishes every poll tick; only report a decision when it
+      // actually changes so the terminal stays readable.
+      const decisionKey = `${inspection.status}|${inspection.title}|${inspection.artist}`;
+      if (decisionKey !== lastReadingKeyRef.current) {
+        lastReadingKeyRef.current = decisionKey;
+        debugLog(
+          'metadata',
+          inspection.status === 'empty-reading'
+            ? 'reading-empty-kept-previous'
+            : inspection.titleMissing
+              ? 'reading-adopted-missing-title'
+              : inspection.status === 'duplicate'
+                ? 'reading-adopted-title-only'
+                : 'reading-accepted',
+          {
+            rawTitle: nowPlaying.title,
+            rawArtist: nowPlaying.artist,
+            rawAlbum: nowPlaying.album,
+            durationMs: nowPlaying.durationMs,
+            playing,
+            status: inspection.status,
+            title: inspection.ok ? inspection.title : undefined,
+            artist: inspection.ok ? inspection.artist : undefined,
+            splitFrom: inspection.splitFrom,
+            reason: inspection.ok ? undefined : inspection.reason,
+          },
+          inspection.ok ? (inspection.titleMissing ? 'warn' : 'info') : 'warn'
+        );
+      }
+
+      const detectedMetadata: SanitizedMetadata | null = inspection.ok
+        ? {
+            title: inspection.title,
+            artist: inspection.artist,
+            titleMissing: inspection.titleMissing,
+            splitFrom: inspection.splitFrom,
+            status: inspection.status,
+          }
+        : null;
+
+      if (!playing || !detectedMetadata) {
         // Not-ready reading: keep the last good track, just advance the clock.
         applySnapshot(positionMs, playing, durationMs, durationAuthoritative);
         return;
       }
 
-      const detectedKey = trackKey(metadata.title, metadata.artist);
-      if (detectedKey !== lastDesktopTrackKeyRef.current) {
-        lastDesktopTrackKeyRef.current = detectedKey;
-        const override = getOverride(metadata.title, metadata.artist);
-        setHasOverride(Boolean(override));
-        const song = resolveDesktopSong(nowPlaying, override ?? metadata);
-        setCurrentSong(song);
-        lastProviderIndexRef.current = 0;
-        setFeedbackState('none');
-        scorerRef.current.reset();
-        // Clear to the new song's empty state before fetching so the loading
-        // state is visible and no stale lyric can render.
-        setLyricsData(emptyLyricsData(song));
+      const rawKey = trackKey(
+        detectedMetadata.title || detectedMetadata.artist,
+        detectedMetadata.artist
+      );
+      // The bridge republishes on every poll tick; only a new raw identity is a
+      // track change. A manual fix/revert updates the current song in place.
+      if (rawKey === lastDesktopRawKeyRef.current) {
         applySnapshot(positionMs, playing, durationMs, durationAuthoritative);
-        void loadLyrics(song, aiConfig);
         return;
       }
+      lastDesktopRawKeyRef.current = rawKey;
 
+      // A manual correction is authoritative and must be looked up against the
+      // *raw* identity, before the artist memory can rewrite the title.
+      const override = getOverride(
+        detectedMetadata.title || detectedMetadata.artist,
+        detectedMetadata.artist
+      );
+      let metadata: SanitizedMetadata = override
+        ? {
+            ...detectedMetadata,
+            title: override.title,
+            artist: override.artist,
+            titleMissing: false,
+          }
+        : detectedMetadata;
+
+      // Artist-scoped memory only fills a missing title when the user has not
+      // already fixed this track.
+      if (!override && metadata.titleMissing && metadata.artist) {
+        const remembered = getArtistTitle(metadata.artist);
+        if (remembered) {
+          metadata = { ...metadata, title: remembered, titleMissing: false };
+          debugLog('metadata', 'artist-title-recalled', {
+            artist: metadata.artist,
+            title: remembered,
+          });
+        }
+      }
+
+      const effectiveKey = trackKey(metadata.title || metadata.artist, metadata.artist);
+      setHasOverride(Boolean(override));
+      debugLog('detection', 'track-changed', {
+        rawKey,
+        key: effectiveKey,
+        title: metadata.title || '',
+        artist: metadata.artist,
+        album: nowPlaying.album,
+        durationMs,
+        hasOverride: Boolean(override),
+      });
+      const song = resolveDesktopSong(nowPlaying, metadata);
+      setCurrentSong(song);
+      lastProviderIndexRef.current = 0;
+      setFeedbackState('none');
+      // The previous track's verdict must not leak into the new one.
+      setLookupOutcome(undefined);
+      scorerRef.current.reset();
+      // Clear to the new song's empty state before fetching so the loading
+      // state is visible and no stale lyric can render.
+      setLyricsData(emptyLyricsData(song));
       applySnapshot(positionMs, playing, durationMs, durationAuthoritative);
+      void loadLyrics(song, aiConfig);
+      return;
     };
   });
 
@@ -488,6 +686,7 @@ export default function App() {
               onResetHistory={handleResetHistory}
               karaokeAIConfig={karaokeAIConfig}
               onKaraokeAIConfigChange={updateKaraokeAIConfig}
+              onOpenDebug={debugAvailable ? () => setDebugOpen(true) : undefined}
             />
           }
         />
@@ -515,6 +714,8 @@ export default function App() {
               karaokeAIStatus={karaokeAIStatus}
               karaokeAIMessage={karaokeAIMessage}
               karaokeAIConfigured={isKaraokeAIConfigured(karaokeAIConfig)}
+              lookupOutcome={lookupOutcome}
+              onRetryLookup={handleRetryLookup}
               layoutWidth={layoutWidthFor(settings.layoutPreset)}
             />
           )}
@@ -527,6 +728,10 @@ export default function App() {
       >
         v{APP_VERSION}
       </span>
+
+      {debugAvailable && (
+        <DebugTerminal open={debugOpen} onClose={() => setDebugOpen(false)} />
+      )}
     </div>
   );
 }

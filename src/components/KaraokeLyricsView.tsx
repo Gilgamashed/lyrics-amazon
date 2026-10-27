@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { LyricLine, GeniusAnnotation, FontSize } from '../types/lyrics';
 import { Sparkles, MessageSquare, Music2, ArrowDown } from 'lucide-react';
+import { EmptyLyricsState } from './EmptyLyricsState';
+import { LookupOutcome } from '../services/lookupOutcome';
 
 interface KaraokeLyricsViewProps {
   lyrics: LyricLine[];
@@ -12,6 +14,10 @@ interface KaraokeLyricsViewProps {
   onSelectAnnotation: (annotationId: string) => void;
   annotations: GeniusAnnotation[];
   isLoading?: boolean;
+  /** How the lookup ended (spec 17, W3). */
+  lookupOutcome?: LookupOutcome;
+  /** Re-runs the lookup after a transient failure. */
+  onRetryLookup?: () => void;
 }
 
 export const KaraokeLyricsView: React.FC<KaraokeLyricsViewProps> = ({
@@ -24,6 +30,8 @@ export const KaraokeLyricsView: React.FC<KaraokeLyricsViewProps> = ({
   onSelectAnnotation,
   annotations,
   isLoading = false,
+  lookupOutcome,
+  onRetryLookup,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const activeLineRef = useRef<HTMLDivElement>(null);
@@ -169,13 +177,11 @@ export const KaraokeLyricsView: React.FC<KaraokeLyricsViewProps> = ({
     }
 
     return (
-      <div className="flex flex-col items-center justify-center h-full text-slate-400 p-8 text-center select-none">
-        <Music2 className="w-8 h-8 text-slate-500 mb-3" />
-        <p className="text-sm font-semibold text-slate-200">Lyrics not found</p>
-        <p className="text-xs text-slate-500 mt-1">
-          No synchronized lyrics were found across any provider for this track.
-        </p>
-      </div>
+      <EmptyLyricsState
+        outcome={lookupOutcome}
+        onRetry={onRetryLookup}
+        notFoundDetail="No synchronized lyrics were found across any provider for this track."
+      />
     );
   }
 

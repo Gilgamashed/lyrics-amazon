@@ -28,6 +28,9 @@ export default defineConfig({
   },
   webServer: {
     command: 'npm run build && npm run preview -- --port=4173 --strictPort --host=127.0.0.1',
+    // The diagnostics terminal is a development/release-candidate feature; the
+    // E2E bundle opts in explicitly so the surface can be exercised.
+    env: { VITE_DEBUG_TERMINAL: '1' },
     url: 'http://127.0.0.1:4173',
     reuseExistingServer: false,
     timeout: 180_000,

@@ -4,6 +4,7 @@ import { KaraokeLyricsView } from './KaraokeLyricsView';
 import { FullSheetLyricsView } from './FullSheetLyricsView';
 import { InfoPanel } from './InfoPanel';
 import { Info, ThumbsUp, ThumbsDown, Sparkles, Loader2, X, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { LookupOutcome } from '../services/lookupOutcome';
 
 interface LyricsPanelProps {
   lyricsData: LyricsData;
@@ -22,6 +23,10 @@ interface LyricsPanelProps {
   karaokeAIStatus?: KaraokeAIStatus;
   karaokeAIMessage?: string;
   karaokeAIConfigured?: boolean;
+  /** How the last lookup ended (spec 17, W3). */
+  lookupOutcome?: LookupOutcome;
+  /** Re-runs the lookup after a transient failure. */
+  onRetryLookup?: () => void;
   layoutWidth: number;
 }
 
@@ -47,6 +52,8 @@ export const LyricsPanel: React.FC<LyricsPanelProps> = ({
   karaokeAIStatus = 'idle',
   karaokeAIMessage,
   karaokeAIConfigured = false,
+  lookupOutcome,
+  onRetryLookup,
   layoutWidth,
 }) => {
   const [showInfo, setShowInfo] = React.useState(false);
@@ -86,7 +93,7 @@ export const LyricsPanel: React.FC<LyricsPanelProps> = ({
       <div className="px-4 py-2.5 flex items-center justify-between gap-3 border-b border-white/10 shrink-0 bg-black/20">
         <div className="flex-1 min-w-0 flex items-baseline gap-2">
           <span className="min-w-0 truncate text-xs font-bold text-white tracking-tight">
-            {lyricsData.title}
+            {lyricsData.title || 'Unknown title'}
           </span>
           <span className="hidden sm:inline shrink-0 text-[11px] text-slate-400 truncate max-w-[40%]">
             · {lyricsData.artist}
@@ -286,6 +293,8 @@ export const LyricsPanel: React.FC<LyricsPanelProps> = ({
               }}
               annotations={lyricsData.annotations}
               isLoading={isLoadingLyrics}
+              lookupOutcome={lookupOutcome}
+              onRetryLookup={onRetryLookup}
             />
           ) : (
             <FullSheetLyricsView
@@ -296,6 +305,8 @@ export const LyricsPanel: React.FC<LyricsPanelProps> = ({
               fontSize={windowState.fontSize}
               onSeek={onSeek}
               isLoading={isLoadingLyrics}
+              lookupOutcome={lookupOutcome}
+              onRetryLookup={onRetryLookup}
             />
           )}
         </div>

@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { LyricLine, FontSize } from '../types/lyrics';
-import { Copy, Check, Search, Play, Music2, Sparkles } from 'lucide-react';
+import { Copy, Check, Search, Play, Sparkles } from 'lucide-react';
+import { EmptyLyricsState } from './EmptyLyricsState';
+import { LookupOutcome } from '../services/lookupOutcome';
 
 interface FullSheetLyricsViewProps {
   lyrics: LyricLine[];
@@ -10,6 +12,10 @@ interface FullSheetLyricsViewProps {
   fontSize: FontSize;
   onSeek: (timeMs: number) => void;
   isLoading?: boolean;
+  /** How the lookup ended (spec 17, W3). */
+  lookupOutcome?: LookupOutcome;
+  /** Re-runs the lookup after a transient failure. */
+  onRetryLookup?: () => void;
 }
 
 export const FullSheetLyricsView: React.FC<FullSheetLyricsViewProps> = ({
@@ -20,6 +26,8 @@ export const FullSheetLyricsView: React.FC<FullSheetLyricsViewProps> = ({
   fontSize,
   onSeek,
   isLoading = false,
+  lookupOutcome,
+  onRetryLookup,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [copied, setCopied] = useState(false);
@@ -76,13 +84,11 @@ export const FullSheetLyricsView: React.FC<FullSheetLyricsViewProps> = ({
       );
     }
     return (
-      <div className="flex flex-col items-center justify-center h-full text-slate-400 p-8 text-center select-none">
-        <Music2 className="w-8 h-8 text-slate-500 mb-3" />
-        <p className="text-sm font-semibold text-slate-200">Lyrics not found</p>
-        <p className="text-xs text-slate-500 mt-1">
-          No lyrics were found across any provider for this track.
-        </p>
-      </div>
+      <EmptyLyricsState
+        outcome={lookupOutcome}
+        onRetry={onRetryLookup}
+        notFoundDetail="No lyrics were found across any provider for this track."
+      />
     );
   }
 

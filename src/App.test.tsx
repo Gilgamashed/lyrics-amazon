@@ -5,6 +5,7 @@ import { APP_VERSION } from './appVersion';
 import { fetchLyrics } from './services/lyricsService';
 import { recordPlay } from './services/playHistoryStore';
 import { setOverride, trackKey } from './services/metaOverrideStore';
+import { getArtistTitle } from './services/artistTitleMemory';
 import { capturePlayback } from './services/captureService';
 import { alignPlainLyrics } from './services/karaokeAlignService';
 import { saveKaraokeAIConfig } from './services/karaokeAIConfigStore';
@@ -410,7 +411,7 @@ describe('App', () => {
     expect(screen.queryByText('Race A opening')).not.toBeInTheDocument();
   });
 
-  it('rejects a placeholder title and keeps the last good track', async () => {
+  it('adopts a placeholder title and offers fix instead of dropping the track', async () => {
     render(<App />);
     await act(async () => {
       bridgeBridge.onConnectionChange('connected');
@@ -428,9 +429,10 @@ describe('App', () => {
     });
 
     const banner = screen.getByRole('banner');
-    expect(within(banner).getByText('Rasa')).toBeInTheDocument();
-    expect(screen.queryByText('Artist name')).not.toBeInTheDocument();
-    expect(vi.mocked(fetchLyrics)).not.toHaveBeenCalled();
+    expect(within(banner).getByText('Title not reported — fix to search')).toBeInTheDocument();
+    // The artist shares a line with the album, so match on the artist alone.
+    expect(within(banner).getByText(/oktobernatt/)).toBeInTheDocument();
+    expect(vi.mocked(fetchLyrics)).toHaveBeenCalled();
   });
 
   it('applies a manual correction, re-searches without cache, persists and reverts', async () => {
@@ -475,6 +477,67 @@ describe('App', () => {
       expect.objectContaining({ useCache: false })
     );
     expect(localStorage.getItem(OVERRIDES_KEY)).not.toContain('Correct Title');
+  });
+
+  it('keeps a missing-title fix across poll ticks and forgets it on revert', async () => {
+    render(<App />);
+    await act(async () => {
+      bridgeBridge.onConnectionChange('connected');
+    });
+    await act(async () => {
+      bridgeBridge.onNowPlaying(nowPlaying({ title: 'Rasa', artist: 'oktobernatt' }));
+    });
+    await screen.findByText('Rasa opening');
+
+    vi.mocked(fetchLyrics).mockClear();
+    await act(async () => {
+      bridgeBridge.onNowPlaying(
+        nowPlaying({ title: '', artist: 'Chevelle', positionMs: 1000 })
+      );
+    });
+
+    const banner = screen.getByRole('banner');
+    expect(within(banner).getByText('Title not reported — fix to search')).toBeInTheDocument();
+    expect(within(banner).getByText(/Chevelle/)).toBeInTheDocument();
+
+    // Fix the missing title; the artist memory is recorded.
+    fireEvent.click(screen.getByLabelText('Fix song or artist name'));
+    fireEvent.change(screen.getByLabelText('Song name'), { target: { value: 'The Red' } });
+    fireEvent.click(screen.getByText('Search again'));
+
+    expect(within(screen.getByRole('banner')).getByText('The Red')).toBeInTheDocument();
+    expect(getArtistTitle('Chevelle')).toBe('The Red');
+    expect(vi.mocked(fetchLyrics)).toHaveBeenLastCalledWith(
+      expect.objectContaining({ title: 'The Red', artist: 'Chevelle' }),
+      expect.objectContaining({ useCache: false })
+    );
+
+    // The bridge republishes the same raw reading every tick. It must not
+    // re-process the track, lose the fix, or refetch.
+    vi.mocked(fetchLyrics).mockClear();
+    await act(async () => {
+      bridgeBridge.onNowPlaying(
+        nowPlaying({ title: '', artist: 'Chevelle', positionMs: 2000 })
+      );
+    });
+    expect(within(screen.getByRole('banner')).getByText('The Red')).toBeInTheDocument();
+    expect(vi.mocked(fetchLyrics)).not.toHaveBeenCalled();
+
+    // Revert clears both the override and the artist memory, and the next tick
+    // must not silently re-apply the remembered title.
+    fireEvent.click(screen.getByLabelText('Fix song or artist name'));
+    fireEvent.click(screen.getByText('Revert'));
+    expect(within(screen.getByRole('banner')).getByText('Title not reported — fix to search')).toBeInTheDocument();
+    expect(getArtistTitle('Chevelle')).toBeNull();
+
+    vi.mocked(fetchLyrics).mockClear();
+    await act(async () => {
+      bridgeBridge.onNowPlaying(
+        nowPlaying({ title: '', artist: 'Chevelle', positionMs: 3000 })
+      );
+    });
+    expect(within(screen.getByRole('banner')).getByText('Title not reported — fix to search')).toBeInTheDocument();
+    expect(vi.mocked(fetchLyrics)).not.toHaveBeenCalled();
   });
 
   it('generates AI karaoke for a plain-only track and persists it', async () => {

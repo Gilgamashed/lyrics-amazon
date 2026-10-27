@@ -28,6 +28,14 @@ export interface Song {
   year?: string;
   genre?: string;
   isExplicit?: boolean;
+  /** True when the player did not report a usable title (spec 17, W2). */
+  titleMissing?: boolean;
+  /**
+   * The original combined `"Artist - Title"` blob this identity was split
+   * from, when it was (spec 17, W4). Lets the lookup try the reversed
+   * pairing as well.
+   */
+  splitFrom?: string;
 }
 
 export interface LyricsData {

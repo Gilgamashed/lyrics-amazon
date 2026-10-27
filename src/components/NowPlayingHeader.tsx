@@ -20,6 +20,13 @@ interface NowPlayingHeaderProps {
 }
 
 /**
+ * Display-only marker shown when the player reported no usable title
+ * (spec 17, W2). It never reaches a provider query: the song keeps the real
+ * (empty) title and only the header renders this text.
+ */
+export const TITLE_NOT_REPORTED = 'Title not reported — fix to search';
+
+/**
  * The now-playing header: the album art is the visual anchor, with the track
  * title/artist/album and the live detection-source indicator. Search, playback
  * controls and the scrubber were removed in the UX redesign.
@@ -41,8 +48,11 @@ export const NowPlayingHeader: React.FC<NowPlayingHeaderProps> = ({
   const [draftArtist, setDraftArtist] = useState('');
 
   const openEditor = () => {
-    setDraftTitle(song.title);
-    setDraftArtist(song.artist);
+    // The title was not reported: prefill it empty so the user can type it,
+    // and keep the known artist (spec 17, W2).
+    const titleMissing = Boolean(song.titleMissing);
+    setDraftTitle(titleMissing ? '' : song.title);
+    setDraftArtist(song.artist === 'Unknown Artist' ? '' : song.artist);
     setEditing(true);
   };
 
@@ -66,11 +76,14 @@ export const NowPlayingHeader: React.FC<NowPlayingHeaderProps> = ({
         }`
       : 'Detecting playback from browser Media Session — native bridge offline';
 
+  // A missing title is stated, never guessed (spec 17, W2).
+  const displayTitle = song.titleMissing ? TITLE_NOT_REPORTED : song.title;
+
   return (
     <header className="relative w-full bg-slate-900/90 backdrop-blur-md border-b border-slate-800 px-5 py-3 flex items-center gap-4 z-30 shrink-0">
       <div className="w-14 h-14 rounded-xl overflow-hidden bg-slate-800 border border-slate-700/60 shrink-0 flex items-center justify-center">
         {song.albumArt ? (
-          <img src={song.albumArt} alt={song.title} className="w-full h-full object-cover" />
+          <img src={song.albumArt} alt={displayTitle} className="w-full h-full object-cover" />
         ) : (
           <Music2 className="w-6 h-6 text-slate-500" />
         )}
@@ -78,7 +91,7 @@ export const NowPlayingHeader: React.FC<NowPlayingHeaderProps> = ({
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <h1 className="text-base font-bold text-white truncate tracking-tight">{song.title}</h1>
+          <h1 className="text-base font-bold text-white truncate tracking-tight">{displayTitle}</h1>
           {isLoading && <Loader2 className="w-3.5 h-3.5 text-cyan-400 animate-spin shrink-0" />}
           {detectionSource === 'desktop' && onEditMetadata && (
             <button

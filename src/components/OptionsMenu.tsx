@@ -14,6 +14,7 @@ import {
   RotateCcw,
   Check,
   Sparkles,
+  Bug,
 } from 'lucide-react';
 
 interface OptionsMenuProps {
@@ -22,6 +23,8 @@ interface OptionsMenuProps {
   onResetHistory: () => void;
   karaokeAIConfig: KaraokeAIConfig;
   onKaraokeAIConfigChange: (updates: Partial<KaraokeAIConfig>) => void;
+  /** Provided only when the build exposes the in-app debug terminal. */
+  onOpenDebug?: () => void;
 }
 
 const FONT_SIZES: FontSize[] = ['small', 'medium', 'large', 'xlarge'];
@@ -47,6 +50,7 @@ export const OptionsMenu: React.FC<OptionsMenuProps> = ({
   onResetHistory,
   karaokeAIConfig,
   onKaraokeAIConfigChange,
+  onOpenDebug,
 }) => {
   const [isOpen, setOpen] = React.useState(false);
 
@@ -309,9 +313,24 @@ export const OptionsMenu: React.FC<OptionsMenuProps> = ({
               onClick={onResetHistory}
               className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs rounded-lg border border-slate-700/60 bg-slate-800 text-slate-300 hover:text-white transition-all"
             >
-              <RotateCcw className="w-3.5 h-3.5" /> Reset Most Listened
+              <RotateCcw className="h-3.5 w-3.5" /> Reset Most Listened
             </button>
           </section>
+
+          {/* Debug terminal (development / release-candidate builds only) */}
+          {onOpenDebug && (
+            <section className="mt-3 pt-3 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={onOpenDebug}
+                data-testid="options-open-debug"
+                className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs rounded-lg border border-cyan-500/40 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 transition-all"
+              >
+                <Bug className="h-3.5 w-3.5" /> Open Debug Terminal
+                <span className="text-[10px] text-cyan-400/60 font-mono">Ctrl+Shift+D</span>
+              </button>
+            </section>
+          )}
         </div>
       )}
     </div>
