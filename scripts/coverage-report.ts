@@ -48,6 +48,12 @@ const CRITICAL_FILES = [
   'src/services/latestRequest.ts',
   'src/services/metaOverrideStore.ts',
   'src/services/metadataSanitizer.ts',
+  // Spec 17 diagnostics and lookup-recovery modules.
+  'src/services/debugConsole.ts',
+  'src/services/queryVariants.ts',
+  'src/services/httpRetry.ts',
+  'src/services/artistTitleMemory.ts',
+  'src/services/lookupOutcome.ts',
 ];
 
 const RUST_EXCLUDES = [/[/\\]src-tauri[/\\]src[/\\]main\.rs$/, /[/\\]src-tauri[/\\]build\.rs$/, /[/\\]src-tauri[/\\]gen[/\\]/];
