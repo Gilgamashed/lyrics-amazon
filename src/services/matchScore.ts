@@ -27,6 +27,8 @@ export function levenshteinSimilarity(a: string, b: string): number {
   if (a === b) return 1;
   const maxLen = Math.max(a.length, b.length);
   if (maxLen === 0) return 1;
+  // Both normalize to empty (e.g. non-Latin stripped oddly) — treat as equal.
+  if (a.trim() === '' && b.trim() === '') return 1;
   return 1 - distance(a, b) / maxLen;
 }
 
@@ -52,6 +54,7 @@ export function tokenSetSimilarity(a: string, b: string): number {
 export function similarity(a: string, b: string): number {
   const na = normalizeQueryText(a);
   const nb = normalizeQueryText(b);
+  if (na === '' && nb === '') return 1;
   return Math.max(levenshteinSimilarity(na, nb), tokenSetSimilarity(na, nb));
 }
 
@@ -68,9 +71,64 @@ export function passesIdentityGate(
   queryTitle: string,
   queryArtist: string
 ): boolean {
-  const titleScore = similarity(candidateTitle, queryTitle);
-  if (titleScore < MIN_IDENTITY_SCORE) return false;
-  if (isUnknownArtist(queryArtist)) return true;
+  return evaluateIdentityGate(candidateTitle, candidateArtist, queryTitle, queryArtist).passed;
+}
+
+/** Why a candidate was rejected by the identity gate (spec 17 diagnostics). */
+export type IdentityGateRejection = 'title-mismatch' | 'artist-mismatch';
+
+export interface IdentityGateResult {
+  passed: boolean;
+  /** `null` when the query title is unknown (the title is not scored). */
+  titleScore: number | null;
+  /** `null` when the query artist is unknown (the artist is not scored). */
+  artistScore: number | null;
+  rejection?: IdentityGateRejection;
+}
+
+/**
+ * Combines the enforced identity scores into a single ranking value.
+ *
+ * - Title known, artist known: the weaker of the two.
+ * - Title known, artist unknown: the title score.
+ * - Title unknown (artist-only variant): the artist score.
+ */
+export function identityScore(titleScore: number | null, artistScore: number | null): number {
+  if (titleScore === null) return artistScore ?? 0;
+  if (artistScore === null) return titleScore;
+  return Math.min(titleScore, artistScore);
+}
+
+/**
+ * Same decision as `passesIdentityGate`, but it also reports the scores and the
+ * rejection reason so the debug terminal can explain why a provider candidate
+ * was discarded.
+ *
+ * The gate is tiered (spec 17, W4): the title is enforced whenever it is
+ * known, and the artist is enforced whenever it is known. When the player
+ * reported no title at all, the title cannot be enforced - the artist is then
+ * the only identity left to check (the artist-only query variant).
+ */
+export function evaluateIdentityGate(
+  candidateTitle: string,
+  candidateArtist: string,
+  queryTitle: string,
+  queryArtist: string
+): IdentityGateResult {
+  const titleKnown = normalizeQueryText(queryTitle).length > 0;
+  const titleScore = titleKnown ? similarity(candidateTitle, queryTitle) : null;
+  if (titleScore !== null && titleScore < MIN_IDENTITY_SCORE) {
+    return { passed: false, titleScore, artistScore: null, rejection: 'title-mismatch' };
+  }
+
+  if (isUnknownArtist(queryArtist)) {
+    return { passed: true, titleScore, artistScore: null };
+  }
+
   const artistScore = similarity(candidateArtist, queryArtist);
-  return artistScore >= MIN_IDENTITY_SCORE;
+  if (artistScore < MIN_IDENTITY_SCORE) {
+    return { passed: false, titleScore, artistScore, rejection: 'artist-mismatch' };
+  }
+
+  return { passed: true, titleScore, artistScore };
 }

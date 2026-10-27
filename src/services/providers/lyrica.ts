@@ -1,8 +1,9 @@
 import { Song } from '../../types/lyrics';
-import { httpFetch } from '../httpClient';
 import { parseLrc } from '../lrcParser';
-import { normalizeQueryText } from '../textNormalize';
-import { passesIdentityGate } from '../matchScore';
+import { evaluateIdentityGate, passesIdentityGate } from '../matchScore';
+import { buildIdentityQueries } from '../queryVariants';
+import { fetchWithRetry } from '../httpRetry';
+import { debugLog } from '../debugConsole';
 import { withTimeoutSignal } from './base';
 import { LyricsProviderResult } from './types';
 
@@ -98,32 +99,142 @@ export async function fetchLyrica(
   externalSignal?: AbortSignal
 ): Promise<LyricsProviderResult> {
   const { signal, cleanup } = withTimeoutSignal(timeoutMs, externalSignal);
-  const empty: LyricsProviderResult = { hasSync: false, provider: 'Lyrica' };
+  const empty: LyricsProviderResult = { hasSync: false, provider: 'Lyrica', outcome: 'not-found' };
   try {
-    const url = `${LYRICA_BASE_URL}/lyrics/?artist=${encodeURIComponent(
-      normalizeQueryText(song.artist)
-    )}&song=${encodeURIComponent(normalizeQueryText(song.title))}&timestamps=true`;
-    const res = await httpFetch(url, { signal });
-    if (!res.ok) {
+    const queries = buildIdentityQueries(song);
+    if (queries.length === 0) {
       cleanup();
+      debugLog(
+        'provider',
+        'lyrica.result',
+        { provider: 'Lyrica', outcome: 'not-found', reason: 'no-query' },
+        'warn'
+      );
       return empty;
     }
-    const payload = (await res.json()) as LyricaResponse;
-    cleanup();
-    // When the deployment echoes the matched title/artist, verify the identity
-    // so a lookalike response never wins silently.
-    const echoedTitle = payload?.data?.title;
-    const echoedArtist = payload?.data?.artist;
-    if (
-      typeof echoedTitle === 'string' &&
-      echoedTitle.trim() &&
-      !passesIdentityGate(echoedTitle, echoedArtist ?? '', song.title, song.artist)
-    ) {
-      return empty;
+
+    let sawGateRejection = false;
+    for (const { label, identity } of queries) {
+      // Lyrica is a title endpoint: an identity without a title cannot be
+      // asked for, so the artist-only variant is skipped here (LRCLIB and
+      // Genius cover that case).
+      if (!identity.title) continue;
+
+      // An unknown artist never reaches the wire: the parameter is dropped
+      // entirely instead of being sent empty (spec 17, W4).
+      const artistParam = identity.artist ? `&artist=${encodeURIComponent(identity.artist)}` : '';
+      const url = `${LYRICA_BASE_URL}/lyrics/?song=${encodeURIComponent(
+        identity.title
+      )}${artistParam}&timestamps=true`;
+
+      const report = await fetchWithRetry(url, { signal, label: 'lyrica.request' });
+      debugLog(
+        'provider',
+        'lyrica.request',
+        {
+          url,
+          label,
+          status: report.response?.status ?? 0,
+          attempts: report.attempts,
+          ms: report.ms,
+        },
+        report.response?.ok ? 'info' : 'warn'
+      );
+
+      if (!report.response?.ok) {
+        if (report.transient) {
+          cleanup();
+          debugLog(
+            'provider',
+            'lyrica.result',
+            {
+              provider: 'Lyrica',
+              outcome: 'transient-error',
+              status: report.response?.status ?? 0,
+              attempts: report.attempts,
+            },
+            'error'
+          );
+          return { hasSync: false, provider: 'Lyrica', outcome: 'transient-error' };
+        }
+        continue;
+      }
+
+      const payload = (await report.response.json()) as LyricaResponse;
+      // When the deployment echoes the matched title/artist, verify the identity
+      // so a lookalike response never wins silently.
+      const echoedTitle = payload?.data?.title;
+      const echoedArtist = payload?.data?.artist;
+      if (
+        typeof echoedTitle === 'string' &&
+        echoedTitle.trim() &&
+        !passesIdentityGate(echoedTitle, echoedArtist ?? '', identity.title, identity.artist)
+      ) {
+        sawGateRejection = true;
+        const gate = evaluateIdentityGate(
+          echoedTitle,
+          echoedArtist ?? '',
+          identity.title,
+          identity.artist
+        );
+        debugLog(
+          'gate',
+          'lyrica.candidate-rejected',
+          {
+            title: echoedTitle,
+            artist: echoedArtist ?? '',
+            rejection: gate.rejection,
+            titleScore: gate.titleScore === null ? null : Number(gate.titleScore.toFixed(3)),
+            artistScore: gate.artistScore === null ? null : Number(gate.artistScore.toFixed(3)),
+          },
+          'warn'
+        );
+        debugLog(
+          'provider',
+          'lyrica.result',
+          { provider: 'Lyrica', outcome: 'gate-rejected' },
+          'warn'
+        );
+        continue;
+      }
+
+      const result = toLyricaResult(payload);
+      if (result) {
+        cleanup();
+        debugLog('provider', 'lyrica.result', {
+          provider: 'Lyrica',
+          outcome: 'found',
+          detail: result.hasSync ? 'synced' : 'plain',
+        });
+        return { ...result, outcome: 'found' };
+      }
+      debugLog('provider', 'lyrica.result', { provider: 'Lyrica', outcome: 'not-found' });
     }
-    return toLyricaResult(payload) ?? empty;
-  } catch {
+
     cleanup();
+    if (sawGateRejection) {
+      debugLog(
+        'provider',
+        'lyrica.result',
+        { provider: 'Lyrica', outcome: 'gate-rejected' },
+        'warn'
+      );
+      return { ...empty, outcome: 'gate-rejected' };
+    }
+    debugLog('provider', 'lyrica.result', { provider: 'Lyrica', outcome: 'not-found' }, 'warn');
     return empty;
+  } catch (error) {
+    cleanup();
+    debugLog(
+      'provider',
+      'lyrica.result',
+      {
+        provider: 'Lyrica',
+        outcome: 'transient-error',
+        error: error instanceof Error ? error.message : String(error),
+      },
+      'error'
+    );
+    return { hasSync: false, provider: 'Lyrica', outcome: 'transient-error' };
   }
 }

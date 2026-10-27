@@ -82,6 +82,26 @@ describe('normalizeQueryText', () => {
     expect(normalizeQueryText('Sigur Rós - Hoppípolla')).toBe('sigur ros hoppipolla');
     expect(normalizeQueryText('Mötley Crüe')).toBe('motley crue');
   });
+
+  // Spec 17, RC5: a non-Latin title must never normalize away to an empty
+  // string - otherwise the lookup would query for nothing at all.
+  it('keeps a non-Latin title intact', () => {
+    expect(normalizeQueryText('東京事変')).toBe('東京事変');
+    expect(normalizeQueryText('椎名林檎')).toBe('椎名林檎');
+    expect(normalizeQueryText('Тебе так везде')).toBe('тебе так везде');
+    expect(normalizeQueryText('한국어 제목')).toBe('한국어 제목');
+  });
+
+  it('strips a trailing feat. credit that has no artist', () => {
+    expect(normalizeQueryText('Song feat.')).toBe('song');
+    expect(normalizeQueryText('Song ft')).toBe('song');
+    expect(normalizeQueryText('Song featuring')).toBe('song');
+  });
+
+  it('strips the feat. credit together with the credited artist', () => {
+    expect(normalizeQueryText('Song feat. Artist X')).toBe('song');
+    expect(normalizeQueryText('Song (feat. Artist X)')).toBe('song');
+  });
 });
 
 describe('identityKey', () => {

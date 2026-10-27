@@ -1,21 +1,13 @@
 /**
- * Dev-only structured logging for diagnostics. Silent in production builds so
- * provider attempts and detection details never reach a shipped console.
+ * Structured logging that feeds the in-app diagnostics console (spec 17).
+ *
+ * Kept as a thin wrapper so call sites that do not need a dedicated scope stay
+ * unchanged. The console is only enabled for development and release-candidate
+ * builds, so stable builds remain silent.
  */
 
-function isDev(): boolean {
-  try {
-    return Boolean(import.meta.env?.DEV);
-  } catch {
-    return false;
-  }
-}
+import { debugLog } from './debugConsole';
 
 export function devLog(event: string, fields: Record<string, unknown> = {}): void {
-  if (!isDev()) return;
-  try {
-    console.debug(`[lyrics-amazon] ${event}`, fields);
-  } catch {
-    // console unavailable - never let diagnostics break the app
-  }
+  debugLog('app', event, fields, 'debug');
 }

@@ -1,7 +1,8 @@
 import { Song } from '../../types/lyrics';
-import { httpFetch } from '../httpClient';
-import { normalizeQueryText } from '../textNormalize';
-import { passesIdentityGate, similarity } from '../matchScore';
+import { evaluateIdentityGate, identityScore } from '../matchScore';
+import { buildQueryVariants, LookupIdentity } from '../queryVariants';
+import { fetchWithRetry } from '../httpRetry';
+import { debugLog } from '../debugConsole';
 import { withTimeoutSignal } from './base';
 import { LyricsProviderResult } from './types';
 
@@ -133,25 +134,63 @@ export function collectHits(payload: GeniusSearchResponse): GeniusHit[] {
  * Selects the best-matching hit: only identity-gate-passing candidates are
  * considered and the highest similarity wins. No hit passing the gate means
  * no result (the chain degrades instead of scraping the wrong song).
+ *
+ * `identity` overrides the identity the candidates are matched against, so a
+ * query variant can be gated against its own title/artist pair.
  */
-export function pickBestHit(hits: GeniusHit[], song: Song): GeniusHit | null {
+export function pickBestHit(
+  hits: GeniusHit[],
+  song: Song,
+  identity?: LookupIdentity
+): GeniusHit | null {
+  const gateTitle = identity?.title ?? song.title;
+  const gateArtist = identity?.artist ?? song.artist;
   let best: GeniusHit | null = null;
   let bestScore = -1;
+  const rejected: Array<{
+    title: string;
+    artist: string;
+    rejection?: string;
+    titleScore: number | null;
+    artistScore: number | null;
+  }> = [];
+
   for (const h of hits) {
     const r = h.result || {};
-    if (!passesIdentityGate(r.title || '', r.primary_artist?.name || '', song.title, song.artist)) {
+    const gate = evaluateIdentityGate(
+      r.title || '',
+      r.primary_artist?.name || '',
+      gateTitle,
+      gateArtist
+    );
+    if (!gate.passed) {
+      rejected.push({
+        title: r.title || '',
+        artist: r.primary_artist?.name || '',
+        rejection: gate.rejection,
+        titleScore: gate.titleScore === null ? null : Number(gate.titleScore.toFixed(3)),
+        artistScore: gate.artistScore === null ? null : Number(gate.artistScore.toFixed(3)),
+      });
       continue;
     }
-    const titleScore = similarity(r.title || '', song.title);
-    const artistScore = r.primary_artist?.name
-      ? similarity(r.primary_artist.name, song.artist)
-      : 1;
-    const score = Math.min(titleScore, artistScore);
+    // The gate only scores the identities the query variant enforces, so the
+    // ranking must not score the others either: a title-only variant has to
+    // pick the closest *title*, not the first candidate that passed the gate.
+    const score = identityScore(gate.titleScore, gate.artistScore);
     if (score > bestScore) {
       bestScore = score;
       best = h;
     }
   }
+
+  if (rejected.length > 0) {
+    debugLog('gate', 'genius.candidate-rejected', {
+      query: `${song.title} ${song.artist}`,
+      candidates: hits.length,
+      rejected,
+    }, 'warn');
+  }
+
   return best;
 }
 
@@ -161,44 +200,179 @@ export async function fetchGenius(
   externalSignal?: AbortSignal
 ): Promise<LyricsProviderResult> {
   const { signal, cleanup } = withTimeoutSignal(timeoutMs, externalSignal);
-  const empty: LyricsProviderResult = { hasSync: false, provider: 'Genius' };
+  const empty: LyricsProviderResult = { hasSync: false, provider: 'Genius', outcome: 'not-found' };
   try {
-    const q = encodeURIComponent(
-      `${normalizeQueryText(song.title)} ${normalizeQueryText(song.artist)}`
-    );
-    const searchRes = await httpFetch(`https://genius.com/api/search/song?q=${q}`, {
-      signal,
-    });
-    if (!searchRes.ok) {
+    const variants = buildQueryVariants(song);
+    if (variants.length === 0) {
       cleanup();
+      debugLog(
+        'provider',
+        'genius.result',
+        { provider: 'Genius', outcome: 'not-found', reason: 'no-query' },
+        'warn'
+      );
       return empty;
     }
-    const searchJson = (await searchRes.json()) as GeniusSearchResponse;
-    const hits = collectHits(searchJson);
-    if (!hits.length) {
+
+    let sawGateRejection = false;
+    for (const variant of variants) {
+      const searchUrl = `https://genius.com/api/search/song?q=${encodeURIComponent(
+        variant.query
+      )}`;
+      const searchReport = await fetchWithRetry(searchUrl, { signal, label: 'genius.search' });
+      debugLog(
+        'provider',
+        'genius.search',
+        {
+          url: searchUrl,
+          label: variant.label,
+          status: searchReport.response?.status ?? 0,
+          attempts: searchReport.attempts,
+          ms: searchReport.ms,
+        },
+        searchReport.response?.ok ? 'info' : 'warn'
+      );
+
+      if (!searchReport.response?.ok) {
+        if (searchReport.transient) {
+          cleanup();
+          debugLog(
+            'provider',
+            'genius.result',
+            {
+              provider: 'Genius',
+              outcome: 'transient-error',
+              status: searchReport.response?.status ?? 0,
+              attempts: searchReport.attempts,
+            },
+            'error'
+          );
+          return { hasSync: false, provider: 'Genius', outcome: 'transient-error' };
+        }
+        continue;
+      }
+
+      const searchJson = (await searchReport.response.json()) as GeniusSearchResponse;
+      const hits = collectHits(searchJson);
+      if (!hits.length) {
+        debugLog('provider', 'genius.result', {
+          provider: 'Genius',
+          outcome: 'not-found',
+          label: variant.label,
+        });
+        continue;
+      }
+
+      let best: GeniusHit | null = null;
+      for (const identity of variant.identities) {
+        best = pickBestHit(hits, song, identity);
+        if (best) break;
+      }
+      const path = best?.result?.path;
+      if (!best) {
+        sawGateRejection = true;
+        debugLog(
+          'provider',
+          'genius.result',
+          {
+            provider: 'Genius',
+            outcome: 'gate-rejected',
+            label: variant.label,
+            candidates: hits.length,
+          },
+          'warn'
+        );
+        continue;
+      }
+      if (!path) {
+        // The hit passed the identity gate but carries no page path: that is a
+        // provider miss, not an identity rejection.
+        debugLog(
+          'provider',
+          'genius.result',
+          {
+            provider: 'Genius',
+            outcome: 'not-found',
+            label: variant.label,
+            reason: 'missing-path',
+          },
+          'warn'
+        );
+        continue;
+      }
+
+      const pageUrl = `https://genius.com${path}`;
+      const pageReport = await fetchWithRetry(pageUrl, { signal, label: 'genius.page' });
       cleanup();
-      return empty;
+      debugLog(
+        'provider',
+        'genius.page',
+        {
+          url: pageUrl,
+          status: pageReport.response?.status ?? 0,
+          attempts: pageReport.attempts,
+          ms: pageReport.ms,
+        },
+        pageReport.response?.ok ? 'info' : 'warn'
+      );
+      if (!pageReport.response?.ok) {
+        if (pageReport.transient) {
+          debugLog(
+            'provider',
+            'genius.result',
+            {
+              provider: 'Genius',
+              outcome: 'transient-error',
+              status: pageReport.response?.status ?? 0,
+              attempts: pageReport.attempts,
+            },
+            'error'
+          );
+          return { hasSync: false, provider: 'Genius', outcome: 'transient-error' };
+        }
+        continue;
+      }
+
+      const html = await pageReport.response.text();
+      const lyrics = extractLyricsFromHtml(html);
+      if (!lyrics) {
+        debugLog('provider', 'genius.result', { provider: 'Genius', outcome: 'not-found' }, 'warn');
+        continue;
+      }
+      debugLog('provider', 'genius.result', { provider: 'Genius', outcome: 'found' });
+      return {
+        plainLyrics: lyrics,
+        syncedLyrics: undefined,
+        hasSync: false,
+        provider: 'Genius',
+        outcome: 'found',
+      };
     }
-    const best = pickBestHit(hits, song);
-    const path = best?.result?.path;
-    if (!path) {
-      cleanup();
-      return empty;
-    }
-    const pageRes = await httpFetch(`https://genius.com${path}`, { signal });
+
     cleanup();
-    if (!pageRes.ok) return empty;
-    const html = await pageRes.text();
-    const lyrics = extractLyricsFromHtml(html);
-    if (!lyrics) return empty;
-    return {
-      plainLyrics: lyrics,
-      syncedLyrics: undefined,
-      hasSync: false,
-      provider: 'Genius',
-    };
-  } catch {
-    cleanup();
+    if (sawGateRejection) {
+      debugLog(
+        'provider',
+        'genius.result',
+        { provider: 'Genius', outcome: 'gate-rejected' },
+        'warn'
+      );
+      return { ...empty, outcome: 'gate-rejected' };
+    }
+    debugLog('provider', 'genius.result', { provider: 'Genius', outcome: 'not-found' }, 'warn');
     return empty;
+  } catch (error) {
+    cleanup();
+    debugLog(
+      'provider',
+      'genius.result',
+      {
+        provider: 'Genius',
+        outcome: 'transient-error',
+        error: error instanceof Error ? error.message : String(error),
+      },
+      'error'
+    );
+    return { hasSync: false, provider: 'Genius', outcome: 'transient-error' };
   }
 }

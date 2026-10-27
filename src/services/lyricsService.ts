@@ -4,6 +4,8 @@ import { resolveAIConfig, isAIConfigured, synthesizeLyrics } from './aiService';
 import { getSavedAILyrics, saveAILyrics } from './aiLyricsStore';
 import { getAcceptedLyrics } from './userLyricsStore';
 import { runProviderChain } from './providers/chain';
+import { LookupOutcome } from './lookupOutcome';
+import { debugLog } from './debugConsole';
 
 export { parseLrc } from './lrcParser';
 
@@ -12,6 +14,11 @@ export interface FetchLyricsOptions {
   aiConfig?: AIConfig;
   startFromIndex?: number;
   signal?: AbortSignal;
+  /**
+   * Reports how the lookup ended (spec 17, W3). A `transient-error` must be
+   * surfaced as a retryable failure, never as "lyrics not found".
+   */
+  onOutcome?: (outcome: LookupOutcome, detail?: { provider?: string }) => void;
 }
 
 /**
@@ -28,26 +35,62 @@ export async function fetchLyrics(
 ): Promise<LyricsData | null> {
   const startFromIndex = options?.startFromIndex ?? 0;
   const useCache = options?.useCache !== false && startFromIndex === 0;
+  const key = `${song.title} | ${song.artist}`;
+  const report = (outcome: LookupOutcome, provider?: string) =>
+    options?.onOutcome?.(outcome, provider ? { provider } : undefined);
+
+  debugLog('lookup', 'lookup.start', { key, useCache, startFromIndex });
 
   if (startFromIndex === 0) {
     // User-accepted lyrics take top priority on a fresh lookup (thumbs-up).
     const accepted = getAcceptedLyrics(song);
-    if (accepted) return accepted;
+    if (accepted) {
+      debugLog('cache', 'lookup.accepted-hit', { key, provider: accepted.provider });
+      report('found', accepted.provider);
+      return accepted;
+    }
 
     // Permanently saved AI-synced lyrics win future lookups over the chain.
     const savedAi = getSavedAILyrics(song);
-    if (savedAi) return savedAi;
+    if (savedAi) {
+      debugLog('cache', 'lookup.ai-hit', { key, provider: savedAi.provider });
+      report('found', savedAi.provider);
+      return savedAi;
+    }
   }
 
   if (useCache) {
     const cached = getCachedLyrics(song);
-    if (cached) return cached;
+    if (cached) {
+      debugLog('cache', 'lookup.cache-hit', { key, provider: cached.provider });
+      report('found', cached.provider);
+      return cached;
+    }
+    debugLog('cache', 'lookup.cache-miss', { key });
   }
 
-  const data = await fetchLyricsUncached(song, options?.aiConfig, startFromIndex, options?.signal);
+  const { data, outcome } = await fetchLyricsUncached(
+    song,
+    options?.aiConfig,
+    startFromIndex,
+    options?.signal
+  );
 
   if (useCache && data) {
     setCachedLyrics(song, data);
+  }
+
+  if (data) {
+    debugLog('lookup', 'lookup.result', {
+      key,
+      provider: data.provider,
+      synced: data.syncedLyrics.length,
+      plain: data.plainLyrics.length,
+    });
+    report('found', data.provider);
+  } else {
+    debugLog('lookup', 'lookup.result', { key, outcome }, 'warn');
+    report(outcome);
   }
 
   return data;
@@ -57,17 +100,20 @@ export async function fetchLyrics(
  * Resolves lyrics through the network stages only: provider chain
  * (LRCLIB, Lyrica, Genius) -> live AI -> not found. Local stores are consulted
  * by `fetchLyrics` before this runs.
+ *
+ * Returns the data together with the classified outcome, so a transient
+ * provider failure is never reported as "lyrics not found".
  */
 async function fetchLyricsUncached(
   song: Song,
   aiConfig?: AIConfig,
   startFromIndex = 0,
   signal?: AbortSignal
-): Promise<LyricsData | null> {
+): Promise<{ data: LyricsData | null; outcome: LookupOutcome }> {
   // Ordered provider chain before any live AI fallback
   const chain = await runProviderChain(song, startFromIndex, undefined, undefined, signal);
   if (chain.result) {
-    return buildLyricsFromProvider(song, chain.result);
+    return { data: buildLyricsFromProvider(song, chain.result), outcome: 'found' };
   }
 
   // Provider-agnostic AI fallback (configurable via session settings or env)
@@ -76,12 +122,13 @@ async function fetchLyricsUncached(
     const aiLyrics = await synthesizeLyrics(song, resolvedAi);
     if (aiLyrics) {
       saveAILyrics(song, aiLyrics);
-      return aiLyrics;
+      return { data: aiLyrics, outcome: 'found' };
     }
+    debugLog('lookup', 'lookup.ai-fallback', { outcome: 'no-result' }, 'warn');
   }
 
-  // The whole chain came up empty - report a genuine not-found state.
-  return null;
+  // The whole chain came up empty - report the classified outcome.
+  return { data: null, outcome: chain.outcome };
 }
 
 function buildLyricsFromProvider(song: Song, result: import('./providers/types').LyricsProviderResult): LyricsData {

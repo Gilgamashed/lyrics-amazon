@@ -114,3 +114,120 @@ describe('runProviderChain', () => {
     expect(result.exhausted).toBe(true);
   });
 });
+
+// Spec 17, W3: the chain classifies its outcome, and a transient failure is
+// retried once instead of ending the request.
+describe('runProviderChain outcome classification (spec 17, W3)', () => {
+  it('reports "found" with a synced result', async () => {
+    const providers: ProviderFn[] = [async () => synced('LRCLIB')];
+    const result = await runProviderChain(SONG, 0, providers);
+    expect(result.outcome).toBe('found');
+  });
+
+  it('reports "found" when a plain-only result is used as the fallback', async () => {
+    const providers: ProviderFn[] = [async () => plain('LRCLIB')];
+    const result = await runProviderChain(SONG, 0, providers);
+    expect(result.outcome).toBe('found');
+    expect(result.result?.plainLyrics).toBe('plain line');
+  });
+
+  it('reports "not-found" when every provider answered without a match', async () => {
+    const providers: ProviderFn[] = [
+      async () => ({ ...notFound('LRCLIB'), outcome: 'not-found' }),
+      async () => ({ ...notFound('Lyrica'), outcome: 'not-found' }),
+    ];
+    const result = await runProviderChain(SONG, 0, providers);
+    expect(result.outcome).toBe('not-found');
+    expect(result.result).toBeNull();
+  });
+
+  it('reports "gate-rejected" when every candidate failed the identity gate', async () => {
+    const providers: ProviderFn[] = [
+      async () => ({ ...notFound('LRCLIB'), outcome: 'gate-rejected' }),
+    ];
+    const result = await runProviderChain(SONG, 0, providers);
+    expect(result.outcome).toBe('gate-rejected');
+  });
+
+  it('reports "transient-error" when the only provider failed transiently', async () => {
+    const providers: ProviderFn[] = [
+      async () => ({ ...notFound('LRCLIB'), outcome: 'transient-error' }),
+    ];
+    const result = await runProviderChain(SONG, 0, providers);
+    expect(result.outcome).toBe('transient-error');
+  }, 20_000);
+
+  it('re-runs the chain once after a transient failure and returns the recovered result', async () => {
+    let calls = 0;
+    const providers: ProviderFn[] = [
+      async () => {
+        calls += 1;
+        return calls === 1
+          ? { ...notFound('LRCLIB'), outcome: 'transient-error' }
+          : synced('LRCLIB');
+      },
+    ];
+
+    const result = await runProviderChain(SONG, 0, providers);
+    expect(result.outcome).toBe('found');
+    expect(result.result?.provider).toBe('LRCLIB');
+    expect(calls).toBe(2);
+  }, 20_000);
+
+  it('re-runs the chain only once, even when the second pass also fails', async () => {
+    let calls = 0;
+    const providers: ProviderFn[] = [
+      async () => {
+        calls += 1;
+        return { ...notFound('LRCLIB'), outcome: 'transient-error' };
+      },
+    ];
+
+    const result = await runProviderChain(SONG, 0, providers);
+    expect(result.outcome).toBe('transient-error');
+    expect(calls).toBe(2);
+  }, 20_000);
+
+  it('does not re-run the chain when a provider already produced a result', async () => {
+    let calls = 0;
+    const providers: ProviderFn[] = [
+      async () => {
+        calls += 1;
+        return synced('LRCLIB');
+      },
+    ];
+
+    await runProviderChain(SONG, 0, providers);
+    expect(calls).toBe(1);
+  });
+
+  it('does not re-run the chain after a clean miss', async () => {
+    let calls = 0;
+    const providers: ProviderFn[] = [
+      async () => {
+        calls += 1;
+        return { ...notFound('LRCLIB'), outcome: 'not-found' };
+      },
+    ];
+
+    const result = await runProviderChain(SONG, 0, providers);
+    expect(result.outcome).toBe('not-found');
+    expect(calls).toBe(1);
+  });
+
+  it('keeps the transient verdict when the re-run finds nothing at all', async () => {
+    let calls = 0;
+    const providers: ProviderFn[] = [
+      async () => {
+        calls += 1;
+        return calls === 1
+          ? { ...notFound('LRCLIB'), outcome: 'transient-error' }
+          : { ...notFound('LRCLIB'), outcome: 'not-found' };
+      },
+    ];
+
+    const result = await runProviderChain(SONG, 0, providers);
+    expect(result.outcome).toBe('not-found');
+    expect(calls).toBe(2);
+  }, 20_000);
+});

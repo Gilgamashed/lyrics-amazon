@@ -4,6 +4,7 @@ import {
   tokenSetSimilarity,
   similarity,
   passesIdentityGate,
+  evaluateIdentityGate,
   MIN_IDENTITY_SCORE,
 } from './matchScore';
 
@@ -82,5 +83,74 @@ describe('passesIdentityGate', () => {
 
   it('uses the documented threshold constant', () => {
     expect(MIN_IDENTITY_SCORE).toBe(0.8);
+  });
+});
+
+// The debug terminal reports why a provider candidate was discarded (spec 17).
+describe('evaluateIdentityGate', () => {
+  it('reports the scores of an accepted candidate', () => {
+    const result = evaluateIdentityGate(
+      'Espresso (Remastered 2011)',
+      'Sabrina Carpenter',
+      'Espresso',
+      'Sabrina Carpenter'
+    );
+    expect(result.passed).toBe(true);
+    expect(result.rejection).toBeUndefined();
+    expect(result.titleScore).toBeGreaterThanOrEqual(MIN_IDENTITY_SCORE);
+    expect(result.artistScore).toBeGreaterThanOrEqual(MIN_IDENTITY_SCORE);
+  });
+
+  it('reports a title mismatch', () => {
+    const result = evaluateIdentityGate('Bohemian Rhapsody', 'Queen', 'Yesterday', 'The Beatles');
+    expect(result.passed).toBe(false);
+    expect(result.rejection).toBe('title-mismatch');
+    expect(result.titleScore).toBeLessThan(MIN_IDENTITY_SCORE);
+  });
+
+  it('reports an artist mismatch', () => {
+    const result = evaluateIdentityGate('Yesterday', 'Other Artist', 'Yesterday', 'The Beatles');
+    expect(result.passed).toBe(false);
+    expect(result.rejection).toBe('artist-mismatch');
+    expect(result.titleScore).toBeGreaterThanOrEqual(MIN_IDENTITY_SCORE);
+    expect(result.artistScore).toBeLessThan(MIN_IDENTITY_SCORE);
+  });
+
+  it('does not score the artist when the query artist is unknown', () => {
+    const result = evaluateIdentityGate('Some Song', '', 'Some Song', 'Unknown Artist');
+    expect(result.passed).toBe(true);
+    expect(result.artistScore).toBeNull();
+  });
+
+  // Spec 17, W4: the gate is tiered. With no title to check, the artist is the
+  // identity that decides (the artist-only query variant).
+  it('does not score the title when the query title is unknown', () => {
+    const result = evaluateIdentityGate('The Red', 'Chevelle', '', 'Chevelle');
+    expect(result.passed).toBe(true);
+    expect(result.titleScore).toBeNull();
+    expect(result.artistScore).toBeGreaterThanOrEqual(MIN_IDENTITY_SCORE);
+  });
+
+  it('rejects a candidate of another artist when the query title is unknown', () => {
+    const result = evaluateIdentityGate('The Red', 'Someone Else', '', 'Chevelle');
+    expect(result.passed).toBe(false);
+    expect(result.rejection).toBe('artist-mismatch');
+    expect(result.titleScore).toBeNull();
+  });
+
+  it('agrees with passesIdentityGate', () => {
+    const cases: Array<[string, string, string, string]> = [
+      ['Espresso (Remastered 2011)', 'Sabrina Carpenter', 'Espresso', 'Sabrina Carpenter'],
+      ['Completely Different', 'Someone Else', 'Yesterday', 'The Beatles'],
+      ['Yesterday', 'Other Artist', 'Yesterday', 'The Beatles'],
+      ['Some Song', '', 'Some Song', 'Unknown Artist'],
+      ['The Red', 'Chevelle', '', 'Chevelle'],
+      ['The Red', 'Someone Else', '', 'Chevelle'],
+    ];
+    for (const [candidateTitle, candidateArtist, queryTitle, queryArtist] of cases) {
+      expect(evaluateIdentityGate(candidateTitle, candidateArtist, queryTitle, queryArtist).passed).toBe(
+        passesIdentityGate(candidateTitle, candidateArtist, queryTitle, queryArtist)
+      );
+    }
   });
 });

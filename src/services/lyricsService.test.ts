@@ -275,7 +275,8 @@ describe('fetchLyrics', () => {
     fetchMock.mockImplementation(abortableFetch());
 
     const pending = fetchLyrics(SONG);
-    await vi.advanceTimersByTimeAsync(30000);
+    // First pass + single retry pass after transient failure (spec 17, W3).
+    await vi.advanceTimersByTimeAsync(60000);
     const result = await pending;
     expect(result).toBeNull();
   });
@@ -374,5 +375,133 @@ describe('fetchLyrics', () => {
     expect(urls.some((u) => u.includes('lrclib.net'))).toBe(false);
     expect(urls.some((u) => u.includes('genius.com'))).toBe(false);
     expect(urls.some((u) => u.includes('test-0k.onrender.com'))).toBe(true);
+  });
+
+  // Spec 17, W3: the lookup reports how it ended, so the UI can offer a Retry
+  // instead of claiming the track has no lyrics.
+  describe('outcome reporting (spec 17, W3)', () => {
+    it('reports "found" with the provider that answered', async () => {
+      fetchMock.mockResolvedValue(
+        jsonOk({ syncedLyrics: '[00:01.00] A fairly long first line' })
+      );
+      const onOutcome = vi.fn();
+
+      const result = await fetchLyrics(SONG, { onOutcome });
+      expect(result?.provider).toBe('LRCLIB');
+      expect(onOutcome).toHaveBeenCalledTimes(1);
+      expect(onOutcome.mock.calls[0][0]).toBe('found');
+      expect(onOutcome.mock.calls[0][1]).toEqual({ provider: 'LRCLIB' });
+    });
+
+    it('reports "found" for a cached hit without touching the network', async () => {
+      const { setCachedLyrics } = await import('./lyricsCache');
+      setCachedLyrics(SONG, makeAccepted('From cache'));
+      fetchMock.mockClear();
+      const onOutcome = vi.fn();
+
+      const result = await fetchLyrics(SONG, { onOutcome });
+      expect(result?.plainLyrics).toBe('From cache');
+      expect(onOutcome.mock.calls[0][0]).toBe('found');
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('reports "not-found" when every provider answers without a match', async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 404 } as Response);
+      const onOutcome = vi.fn();
+
+      const result = await fetchLyrics(SONG, { onOutcome });
+      expect(result).toBeNull();
+      expect(onOutcome.mock.calls[0][0]).toBe('not-found');
+    });
+
+    it('reports "transient-error" for a provider outage, never "not-found"', async () => {
+      vi.useFakeTimers();
+      fetchMock.mockResolvedValue({ ok: false, status: 503 } as Response);
+      const onOutcome = vi.fn();
+
+      const pending = fetchLyrics(SONG, { onOutcome });
+      // First pass + the single re-run after a transient failure (spec 17, W3).
+      await vi.advanceTimersByTimeAsync(180000);
+      const result = await pending;
+
+      expect(result).toBeNull();
+      expect(onOutcome).toHaveBeenCalled();
+      expect(onOutcome.mock.calls[0][0]).toBe('transient-error');
+      expect(onOutcome.mock.calls.some((c) => c[0] === 'not-found')).toBe(false);
+    });
+
+    it('reports "not-found" when the configured AI fallback also yields nothing', async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 404 } as Response);
+      vi.mocked(synthesizeLyrics).mockResolvedValueOnce(null);
+      const onOutcome = vi.fn();
+
+      const result = await fetchLyrics(SONG, { aiConfig: AI_CONFIG, onOutcome });
+
+      expect(result).toBeNull();
+      expect(onOutcome.mock.calls[0][0]).toBe('not-found');
+      expect(vi.mocked(synthesizeLyrics)).toHaveBeenCalled();
+    });
+
+    it('reports "gate-rejected" when every provider answer fails the identity gate', async () => {
+      fetchMock.mockImplementation((url: string) => {
+        if (url.includes('lrclib.net/api/get')) {
+          return Promise.resolve({ ok: false, status: 404 } as Response);
+        }
+        if (url.includes('lrclib.net/api/search')) {
+          return Promise.resolve(
+            jsonOk([
+              {
+                id: 1,
+                duration: 200,
+                trackName: 'A Totally Different Song',
+                artistName: 'Someone Else',
+                syncedLyrics: '[00:01.00] Wrong song',
+              },
+            ])
+          );
+        }
+        if (url.includes('test-0k.onrender.com')) {
+          return Promise.resolve(
+            jsonOk({
+              status: 'success',
+              data: {
+                title: 'A Totally Different Song',
+                artist: 'Someone Else',
+                lyrics: 'Wrong song',
+              },
+            })
+          );
+        }
+        if (url.includes('genius.com/api/search')) {
+          return Promise.resolve(
+            jsonOk({
+              response: {
+                sections: [
+                  {
+                    hits: [
+                      {
+                        result: {
+                          title: 'A Totally Different Song',
+                          primary_artist: { name: 'Someone Else' },
+                          path: '/someone-else-different-lyrics',
+                        },
+                      },
+                    ],
+                  },
+                ],
+              },
+            })
+          );
+        }
+        return Promise.resolve({ ok: false, status: 404 } as Response);
+      });
+      const onOutcome = vi.fn();
+
+      const result = await fetchLyrics(SONG, { onOutcome });
+
+      expect(result).toBeNull();
+      expect(onOutcome.mock.calls[0][0]).toBe('gate-rejected');
+      expect(onOutcome.mock.calls.some((c) => c[0] === 'not-found')).toBe(false);
+    });
   });
 });
