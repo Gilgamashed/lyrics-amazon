@@ -1,6 +1,6 @@
 [package]
 name = "amazon-music-floating-lyrics-bridge"
-version = "0.5.4"
+version = "0.5.5-rc.2"
 description = "Native companion bridge that detects the currently playing track (Windows SMTC first) and exposes it to the Lyrics for Amazon Music UI over localhost WebSocket + HTTP."
 authors = ["lyrics-amazon"]
 license = ""
@@ -34,7 +34,7 @@ futures-util = "0.3.34"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "brotli", "deflate"] }
 
 [target."cfg(windows)".dependencies]
-windows = { version = "0.62.2", features = ["Foundation", "Media_Control", "Storage_Streams", "Win32_Media_Audio", "Win32_System_Com", "Win32_Foundation"] }
+windows = { version = "0.62.2", features = ["Foundation", "Media_Control", "Storage_Streams", "Win32_Media_Audio", "Win32_System_Com", "Win32_Foundation", "Win32_UI_Accessibility"] }
 windows-collections = "0.3.2"
 
 [dev-dependencies]
