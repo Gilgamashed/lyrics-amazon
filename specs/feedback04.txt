@@ -1,0 +1,24 @@
+Let's come up with a new testing version in which the app is accompanied by
+a debug terminal in which every request and action is logged.
+
+The critical issue:
+Some songs won't trigger the lyrics fetching no matter what.
+There is no clear pattern as for why some songs cause this issue but
+for demonstration, let's call these songs "A cursed song"
+When this happens, even if the user manualy fixes the song name and 
+attempts to search again, the lyrics won't be loaded.
+Even if he inputs other songs names (including previously working ones)
+no lyric is ever loaded while "A cursed song" is being played
+
+If the user changes the song to a healthy song, the app loads the lyrics 
+normally and the user can search for lyrics again 
+(including misnamed songs or even the previously song that caused the issue)
+
+If the user attempts to go back to "a cursed song", the same issue will happen
+again. 
+
+Second issue:
+
+The fuzzy name search doesn't seem to be doing anything.
+Let's endeavor to clean typical naming issues such as "[Explicit]" or
+"feat. artist name" 
