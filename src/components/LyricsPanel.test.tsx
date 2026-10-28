@@ -157,4 +157,121 @@ describe('LyricsPanel', () => {
     );
     expect(screen.getByText('Karaoke generated')).toBeInTheDocument();
   });
+  // ─── Manual lyrics (spec 19, W2) ─────────────────────────────────────
+  const manualEntry = () =>
+    makeLyrics({
+      provider: 'Manual',
+      syncedLyrics: [{ id: 'm0', startTimeMs: 1000, text: 'My own line' }],
+      plainLyrics: 'My own line',
+    });
+
+  it('hides the Manual (Synced) view until a manual entry exists', () => {
+    renderPanel();
+    expect(screen.queryByTestId('view-manual')).not.toBeInTheDocument();
+
+    renderPanel({ hasManualLyrics: true, manualEntry: manualEntry() });
+    expect(screen.getAllByTestId('view-manual').length).toBeGreaterThan(0);
+  });
+
+  it('switches to the Manual (Synced) view', () => {
+    const { onUpdateWindowState } = renderPanel({
+      hasManualLyrics: true,
+      manualEntry: manualEntry(),
+    });
+
+    fireEvent.click(screen.getByTestId('view-manual'));
+    expect(onUpdateWindowState).toHaveBeenCalledWith({ viewMode: 'manual' });
+  });
+
+  it('labels the editor action Edit when lyrics exist and Manual otherwise', () => {
+    renderPanel();
+    expect(screen.getByTestId('manual-edit')).toHaveTextContent('Manual');
+
+    renderPanel({ hasManualLyrics: true, manualEntry: manualEntry() });
+    expect(screen.getAllByTestId('manual-edit')[1]).toHaveTextContent('Edit');
+  });
+
+  it('opens the editor surface', () => {
+    const onStartEdit = vi.fn();
+    renderPanel({ hasManualLyrics: true, manualEntry: manualEntry(), onStartEdit });
+
+    fireEvent.click(screen.getAllByTestId('manual-edit')[0]);
+    expect(onStartEdit).toHaveBeenCalledOnce();
+  });
+
+  it('renders the editor surface instead of the lyrics', () => {
+    renderPanel({ isEditing: true, editorText: 'Draft line' });
+    expect(screen.getByTestId('manual-editor')).toBeInTheDocument();
+    expect(screen.getByLabelText('Manual lyrics')).toHaveValue('Draft line');
+  });
+
+  it('locks the editor while a sync session is running', () => {
+    renderPanel({ isEditing: true, syncActive: true });
+    expect(screen.getByTestId('manual-editor-locked')).toBeInTheDocument();
+    expect(screen.getByTestId('manual-edit')).toBeDisabled();
+  });
+
+  it('offers Delete and Skip only when a manual entry exists', () => {
+    renderPanel();
+    expect(screen.queryByTestId('manual-delete')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('manual-skip')).not.toBeInTheDocument();
+
+    renderPanel({ hasManualLyrics: true, manualEntry: manualEntry() });
+    expect(screen.getAllByTestId('manual-delete').length).toBeGreaterThan(0);
+    expect(screen.getAllByTestId('manual-skip').length).toBeGreaterThan(0);
+  });
+
+  it('triggers the delete and skip actions', () => {
+    const onDeleteManual = vi.fn();
+    const onSkipManual = vi.fn();
+    renderPanel({
+      hasManualLyrics: true,
+      manualEntry: manualEntry(),
+      onDeleteManual,
+      onSkipManual,
+    });
+
+    fireEvent.click(screen.getAllByTestId('manual-delete')[0]);
+    fireEvent.click(screen.getAllByTestId('manual-skip')[0]);
+    expect(onDeleteManual).toHaveBeenCalledOnce();
+    expect(onSkipManual).toHaveBeenCalledOnce();
+  });
+
+  it('disables the thumbs for manual lyrics', () => {
+    renderPanel({ lyricsData: makeLyrics({ provider: 'Manual' }) });
+    expect(screen.getByTestId('thumbs-up')).toBeDisabled();
+    expect(screen.getByTestId('thumbs-down')).toBeDisabled();
+  });
+
+  it('offers Manual Sync for a manual entry or a plain-only sheet', () => {
+    renderPanel({ lyricsData: plainOnly() });
+    expect(screen.getByTestId('manual-sync')).toBeInTheDocument();
+
+    renderPanel({ hasManualLyrics: true, manualEntry: manualEntry() });
+    expect(screen.getAllByTestId('manual-sync').length).toBeGreaterThan(0);
+  });
+
+  it('offers the sync save and cancel actions while a session runs', () => {
+    renderPanel({
+      hasManualLyrics: true,
+      manualEntry: manualEntry(),
+      syncActive: true,
+      onSaveSync: vi.fn(),
+      onCancelSync: vi.fn(),
+    });
+
+    expect(screen.getAllByTestId('manual-sync-save').length).toBeGreaterThan(0);
+    expect(screen.getAllByTestId('manual-sync-cancel').length).toBeGreaterThan(0);
+  });
+
+  it('shows the sync status inside the Manual view', () => {
+    renderPanel({
+      windowState: makeWindowState({ viewMode: 'manual' }),
+      hasManualLyrics: true,
+      manualEntry: manualEntry(),
+      syncStatus: 'Syncing - line 1/1 (0 stamped)',
+    });
+
+    expect(screen.getByTestId('manual-sync-status')).toHaveTextContent('Syncing');
+  });
 });

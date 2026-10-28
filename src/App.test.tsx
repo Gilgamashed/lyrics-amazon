@@ -4,12 +4,14 @@ import App from './App';
 import { APP_VERSION } from './appVersion';
 import { fetchLyrics } from './services/lyricsService';
 import { getRanking, recordPlay } from './services/playHistoryStore';
+import { getManualLyrics } from './services/manualLyricsStore';
 import { setOverride, trackKey } from './services/metaOverrideStore';
 import { getArtistTitle } from './services/artistTitleMemory';
 import { capturePlayback } from './services/captureService';
 import { alignPlainLyrics } from './services/karaokeAlignService';
 import { saveKaraokeAIConfig } from './services/karaokeAIConfigStore';
 import { LyricsData, NowPlaying, Song } from './types/lyrics';
+import { makeSong } from './test/fixtures';
 
 vi.mock('./services/captureService', () => ({
   capturePlayback: vi.fn(async () => new Blob(['audio'], { type: 'audio/wav' })),
@@ -745,5 +747,111 @@ describe('App', () => {
     expect(localStorage.getItem('lyrics-amazon:ai-lyrics:v1')).toContain('AI Sync');
     // The plain-only banner is gone once timed lyrics exist.
     expect(screen.queryByTestId('karaoke-ai-banner')).not.toBeInTheDocument();
+  });
+  // ─── Manual lyrics (spec 19, W2/W3) ─────────────────────────────────
+  it('saves manual lyrics locally and shows the Manual provider', async () => {
+    render(<App />);
+    await act(async () => {
+      bridgeBridge.onConnectionChange('connected');
+    });
+    await act(async () => {
+      bridgeBridge.onNowPlaying(nowPlaying({ title: 'Breed', artist: 'Nirvana' }));
+    });
+    await screen.findByText('Breed opening');
+
+    fireEvent.click(screen.getByTestId('manual-edit'));
+    fireEvent.change(screen.getByLabelText('Manual lyrics'), {
+      target: { value: 'My own line' },
+    });
+    fireEvent.click(screen.getByTestId('manual-editor-save'));
+
+    expect(screen.getByText('Provider: Manual')).toBeInTheDocument();
+    expect(getManualLyrics(makeSong({ title: 'Breed', artist: 'Nirvana' }))).toMatchObject({
+      provider: 'Manual',
+      plainLyrics: 'My own line',
+    });
+  });
+
+  it('deletes the manual lyrics after a confirmation and re-runs the lookup', async () => {
+    render(<App />);
+    await act(async () => {
+      bridgeBridge.onConnectionChange('connected');
+    });
+    await act(async () => {
+      bridgeBridge.onNowPlaying(nowPlaying({ title: 'Breed', artist: 'Nirvana' }));
+    });
+    await screen.findByText('Breed opening');
+
+    fireEvent.click(screen.getByTestId('manual-edit'));
+    fireEvent.change(screen.getByLabelText('Manual lyrics'), {
+      target: { value: 'My own line' },
+    });
+    fireEvent.click(screen.getByTestId('manual-editor-save'));
+
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    vi.mocked(fetchLyrics).mockClear();
+    fireEvent.click(screen.getByTestId('manual-delete'));
+    await act(async () => {});
+
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(getManualLyrics(makeSong({ title: 'Breed', artist: 'Nirvana' }))).toBeNull();
+    expect(vi.mocked(fetchLyrics)).toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
+  it('skips the manual lyrics for one lookup without deleting them', async () => {
+    render(<App />);
+    await act(async () => {
+      bridgeBridge.onConnectionChange('connected');
+    });
+    await act(async () => {
+      bridgeBridge.onNowPlaying(nowPlaying({ title: 'Breed', artist: 'Nirvana' }));
+    });
+    await screen.findByText('Breed opening');
+
+    fireEvent.click(screen.getByTestId('manual-edit'));
+    fireEvent.change(screen.getByLabelText('Manual lyrics'), {
+      target: { value: 'My own line' },
+    });
+    fireEvent.click(screen.getByTestId('manual-editor-save'));
+
+    vi.mocked(fetchLyrics).mockClear();
+    fireEvent.click(screen.getByTestId('manual-skip'));
+    await act(async () => {});
+
+    expect(vi.mocked(fetchLyrics)).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Breed' }),
+      expect.objectContaining({ skipManual: true })
+    );
+    expect(getManualLyrics(makeSong({ title: 'Breed', artist: 'Nirvana' }))).not.toBeNull();
+  });
+
+  it('stamps the manual lyrics with the sync keys and saves the timings', async () => {
+    render(<App />);
+    await act(async () => {
+      bridgeBridge.onConnectionChange('connected');
+    });
+    await act(async () => {
+      bridgeBridge.onNowPlaying(nowPlaying({ title: 'Breed', artist: 'Nirvana' }));
+    });
+    await screen.findByText('Breed opening');
+
+    fireEvent.click(screen.getByTestId('manual-edit'));
+    fireEvent.change(screen.getByLabelText('Manual lyrics'), {
+      target: { value: 'First line\nSecond line' },
+    });
+    fireEvent.click(screen.getByTestId('manual-editor-save'));
+
+    fireEvent.click(screen.getByTestId('manual-sync'));
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 'Enter' });
+    });
+
+    fireEvent.click(screen.getByTestId('manual-sync-save'));
+
+    const entry = getManualLyrics(makeSong({ title: 'Breed', artist: 'Nirvana' }));
+    expect(entry?.syncedLyrics).toHaveLength(1);
+    expect(entry?.syncedLyrics[0].text).toBe('First line');
+    expect(entry?.plainLyrics).toBe('First line\nSecond line');
   });
 });

@@ -43,6 +43,28 @@ import {
   getArtistTitle,
   rememberArtistTitle,
 } from './services/artistTitleMemory';
+import {
+  buildManualLyrics,
+  clearManualLyrics,
+  getManualLyrics,
+  saveManualLyrics,
+} from './services/manualLyricsStore';
+import {
+  ManualSyncSession,
+  abortManualSync,
+  createManualSyncSession,
+  describeManualSync,
+  manualSyncToLyricLines,
+  pauseManualSync,
+  rearmManualSync,
+  resumeManualSync,
+  stampManualSync,
+  startManualSync,
+  stepBackManualSync,
+  MANUAL_SYNC_SEEK_THRESHOLD_MS,
+} from './services/manualSync';
+import { removeCachedLyrics } from './services/lyricsCache';
+import { identityKey } from './services/textNormalize';
 import { LatestRequest } from './services/latestRequest';
 import { LookupOutcome } from './services/lookupOutcome';
 import { debugLog, isDebugConsoleEnabled } from './services/debugConsole';
@@ -187,13 +209,46 @@ export default function App() {
   const isAmazonRef = useRef(false);
   const scorerRef = useRef<PlaySessionScorer>(new PlaySessionScorer());
 
+  // Manual lyrics (spec 19, W2/W3).
+  const [manualEntry, setManualEntry] = useState<LyricsData | null>(null);
+  const [isEditingManual, setIsEditingManual] = useState(false);
+  const [editorText, setEditorText] = useState('');
+  const [syncSession, setSyncSessionState] = useState<ManualSyncSession | null>(null);
+  /** While editing or syncing, the auto-view rule must not move the surface. */
+  const surfaceLockRef = useRef(false);
+  /** The last playback position seen by the bridge (seek detection). */
+  const lastSyncPositionRef = useRef<number | null>(null);
+  /**
+   * A bounded app-side clock override (spec 19, W3). The bridge position is
+   * authoritative, so a manual re-arm is kept only for a short window instead
+   * of being snapped back by the next poll.
+   */
+  const seekOverrideRef = useRef<{ positionMs: number; expiresAt: number } | null>(null);
+
   useEffect(() => {
     currentSongRef.current = currentSong;
   }, [currentSong]);
 
   const applySnapshot = useCallback(
     (positionMs: number, playing: boolean, durationMs: number, durationAuthoritative: boolean) => {
+      const override = seekOverrideRef.current;
+      if (override && Date.now() < override.expiresAt) {
+        // Keep the user's re-arm for the rest of the override window.
+        anchorRef.current = {
+          ...anchorRef.current,
+          positionMs: override.positionMs,
+          atMs: Date.now(),
+          playing,
+          durationMs,
+          durationAuthoritative,
+        };
+        currentTimeMsRef.current = override.positionMs;
+        setCurrentTimeMs(override.positionMs);
+        return;
+      }
+      seekOverrideRef.current = null;
       anchorRef.current = { positionMs, atMs: Date.now(), playing, durationMs, durationAuthoritative };
+      currentTimeMsRef.current = positionMs;
       setCurrentTimeMs(positionMs);
     },
     []
@@ -206,13 +261,18 @@ export default function App() {
       ? anchor.positionMs + (now - anchor.atMs)
       : anchor.positionMs;
     anchorRef.current = { ...anchor, positionMs, atMs: now, playing };
+    currentTimeMsRef.current = positionMs;
     setCurrentTimeMs(positionMs);
   }, []);
 
   const handleSeek = useCallback((timeMs: number) => {
     const anchor = anchorRef.current;
     anchorRef.current = { ...anchor, positionMs: timeMs, atMs: Date.now() };
+    currentTimeMsRef.current = timeMs;
     setCurrentTimeMs(timeMs);
+    // Keep the manual re-arm alive for a short window (spec 19, W3): the next
+    // bridge snapshot would otherwise snap the clock straight back.
+    seekOverrideRef.current = { positionMs: timeMs, expiresAt: Date.now() + 2000 };
   }, []);
 
   useEffect(() => {
@@ -221,6 +281,7 @@ export default function App() {
       const anchor = anchorRef.current;
       if (anchor.playing) {
         const next = nextClockPositionMs(anchor, Date.now());
+        currentTimeMsRef.current = next;
         setCurrentTimeMs(next);
 
         // Award a play only for real Amazon playback (desktop) after >= 30s.
@@ -255,6 +316,8 @@ export default function App() {
   }, [detectionSource]);
 
   const applyAutoViewMode = useCallback((viewMode: ViewMode) => {
+    // The manual editor and a running sync session own the surface (spec 19).
+    if (surfaceLockRef.current) return;
     setSettings((prev) => ({ ...prev, window: { ...prev.window, viewMode } }));
   }, []);
 
@@ -262,7 +325,12 @@ export default function App() {
   // plain-only → Full Sheet). Latest-wins: a superseded request may not apply
   // its result or clear the loading flag.
   const loadLyrics = useCallback(
-    async (song: Song, config: typeof aiConfig, useCache = true, startFromIndex = 0) => {
+    async (
+      song: Song,
+      config: typeof aiConfig,
+      options: { useCache?: boolean; startFromIndex?: number; skipManual?: boolean } = {}
+    ) => {
+      const { useCache = true, startFromIndex = 0, skipManual = false } = options;
       const { id, signal } = latestRequestRef.current.start();
       setIsLoadingLyrics(true);
       try {
@@ -271,6 +339,7 @@ export default function App() {
           aiConfig: config,
           startFromIndex,
           signal,
+          skipManual,
           onOutcome: (outcome) => {
             if (latestRequestRef.current.isCurrent(id)) setLookupOutcome(outcome);
           },
@@ -312,7 +381,7 @@ export default function App() {
       artist: currentSong.artist,
       nextProviderIndex: next,
     });
-    void loadLyrics(currentSong, aiConfig, false, next);
+    void loadLyrics(currentSong, aiConfig, { useCache: false, startFromIndex: next });
   }, [currentSong, aiConfig, loadLyrics]);
 
   // Retry a failed lookup (spec 17, W3). The cache is bypassed so a stale
@@ -323,8 +392,243 @@ export default function App() {
       artist: currentSong.artist,
       previousOutcome: lookupOutcome,
     });
-    void loadLyrics(currentSong, aiConfig, false);
+    void loadLyrics(currentSong, aiConfig, { useCache: false });
   }, [currentSong, aiConfig, loadLyrics, lookupOutcome]);
+
+  // ─── Manual lyrics (spec 19, W2/W3) ──────────────────────────────────
+  const songIdentity = identityKey(currentSong.title, currentSong.artist);
+  /** Mirror of the sync session so the key handler always sees the latest one. */
+  const syncSessionRef = useRef<ManualSyncSession | null>(null);
+  /** Mirror of the playback position for the stamp handler. */
+  const currentTimeMsRef = useRef(0);
+  /** The raw SMTC identity of the current song (the sync abort key). */
+  const rawIdentityRef = useRef('');
+
+  const setSyncSession = useCallback((next: ManualSyncSession | null) => {
+    syncSessionRef.current = next;
+    setSyncSessionState(next);
+  }, []);
+
+  // Keep the manual entry in sync with the current song.
+  useEffect(() => {
+    const entry = getManualLyrics(currentSong);
+    setManualEntry(entry);
+    if (!entry && settings.window.viewMode === 'manual') {
+      setSettings((prev) => ({ ...prev, window: { ...prev.window, viewMode: 'sheet' } }));
+    }
+  }, [songIdentity]);
+
+  const handleStartEdit = useCallback(() => {
+    const song = currentSongRef.current;
+    const entry = manualEntry ?? getManualLyrics(song);
+    setEditorText(entry?.plainLyrics ?? '');
+    surfaceLockRef.current = true;
+    setIsEditingManual(true);
+    debugLog('manual', 'manual-edit-opened', {
+      title: song.title,
+      artist: song.artist,
+      hasSaved: Boolean(entry),
+    });
+  }, [manualEntry]);
+
+  const handleCancelEdit = useCallback(() => {
+    setIsEditingManual(false);
+    surfaceLockRef.current = syncSessionRef.current !== null;
+    debugLog('manual', 'manual-edit-cancelled', {});
+  }, []);
+
+  const handleSaveEdit = useCallback((text: string) => {
+    const song = currentSongRef.current;
+    const previous = manualEntry ?? getManualLyrics(song);
+    const rebuilt = buildManualLyrics(song, text);
+    // Keep the existing timings only while the text itself is unchanged.
+    const unchanged = previous?.plainLyrics === rebuilt.plainLyrics;
+    const data = buildManualLyrics(song, text, unchanged ? previous?.syncedLyrics : undefined);
+    saveManualLyrics(song, data);
+    setManualEntry(data);
+    setLyricsData(data);
+    setIsEditingManual(false);
+    surfaceLockRef.current = syncSessionRef.current !== null;
+    setSettings((prev) => ({ ...prev, window: { ...prev.window, viewMode: 'manual' } }));
+    debugLog('manual', 'manual-saved', {
+      title: song.title,
+      artist: song.artist,
+      lines: data.plainLyrics.split('\n').length,
+      keptTimings: unchanged,
+    });
+  }, [manualEntry]);
+
+  const handleDeleteManual = useCallback(() => {
+    const song = currentSongRef.current;
+    const confirmed =
+      typeof window !== 'undefined' &&
+      window.confirm('Delete the saved manual lyrics for this song?');
+    if (!confirmed) {
+      debugLog('manual', 'manual-delete-cancelled', { title: song.title });
+      return;
+    }
+    clearManualLyrics(song);
+    removeCachedLyrics(song);
+    setManualEntry(null);
+    // The Manual view no longer has content: fall back to the sheet.
+    setSettings((prev) => ({ ...prev, window: { ...prev.window, viewMode: 'sheet' } }));
+    debugLog('manual', 'manual-deleted', { title: song.title, artist: song.artist });
+    void loadLyrics(song, aiConfig, { useCache: false });
+  }, [aiConfig, loadLyrics]);
+
+  const handleSkipManual = useCallback(() => {
+    const song = currentSongRef.current;
+    debugLog('manual', 'manual-skipped', { title: song.title, artist: song.artist });
+    // One-shot: this request ignores the manual lyrics, the entry stays.
+    void loadLyrics(song, aiConfig, { useCache: false, skipManual: true });
+  }, [aiConfig, loadLyrics]);
+
+  // ─── Manual Sync (spec 19, W3) ───────────────────────────────────────
+  const handleStartSync = useCallback(() => {
+    const song = currentSongRef.current;
+    let entry = manualEntry ?? getManualLyrics(song);
+    if (!entry) {
+      // Seed the manual entry from the lyrics currently on screen.
+      const text = lyricsData.plainLyrics;
+      if (!text.trim()) return;
+      entry = buildManualLyrics(song, text);
+      saveManualLyrics(song, entry);
+      setManualEntry(entry);
+    }
+    const session = startManualSync(
+      createManualSyncSession(entry.plainLyrics, rawIdentityRef.current)
+    );
+    setSyncSession(session);
+    surfaceLockRef.current = true;
+    setIsEditingManual(false);
+    setSettings((prev) => ({ ...prev, window: { ...prev.window, viewMode: 'manual' } }));
+    debugLog('manual', 'manual-sync-started', {
+      lines: session.lines.length,
+      rawKey: session.rawKey,
+    });
+  }, [manualEntry, lyricsData.plainLyrics]);
+
+  const handleStamp = useCallback(() => {
+    const session = syncSessionRef.current;
+    if (!session || session.state !== 'syncing') return;
+    const atMs = currentTimeMsRef.current;
+    const next = stampManualSync(session, atMs);
+    setSyncSession(next);
+    debugLog('manual', 'manual-sync-stamped', {
+      pointer: next.pointer,
+      atMs: Math.round(atMs),
+    });
+  }, [setSyncSession]);
+
+  const handleStepBack = useCallback(() => {
+    const session = syncSessionRef.current;
+    if (!session) return;
+    const next = stepBackManualSync(session);
+    setSyncSession(next);
+    if (next.rearmAtMs !== null && next.rearmAtMs !== session.rearmAtMs) {
+      // App-side re-arm: the external player is not controllable (spec 19).
+      handleSeek(next.rearmAtMs);
+      debugLog('manual', 'manual-sync-rearmed', { atMs: next.rearmAtMs });
+    }
+  }, [handleSeek, setSyncSession]);
+
+  const handleCancelSync = useCallback(() => {
+    const session = syncSessionRef.current;
+    if (session) setSyncSession(abortManualSync(session));
+    surfaceLockRef.current = false;
+    debugLog('manual', 'manual-sync-cancelled', {});
+  }, [setSyncSession]);
+
+  const handleSaveSync = useCallback(() => {
+    const session = syncSessionRef.current;
+    const song = currentSongRef.current;
+    if (!session) return;
+    const lines = manualSyncToLyricLines(session);
+    const text = session.lines.map((line) => line.text).join('\n');
+    const data = buildManualLyrics(song, text, lines);
+    saveManualLyrics(song, data);
+    setManualEntry(data);
+    setLyricsData(data);
+    setSyncSession(null);
+    surfaceLockRef.current = false;
+    debugLog('manual', 'manual-sync-saved', {
+      title: song.title,
+      lines: lines.length,
+    });
+  }, [setSyncSession]);
+
+  /** Playback/session signals -> state transitions (spec 19, W3). */
+  const handleSyncSignals = useCallback(
+    (rawKey: string, playing: boolean, positionMs: number) => {
+      const session = syncSessionRef.current;
+      const previousPosition = lastSyncPositionRef.current;
+      lastSyncPositionRef.current = positionMs;
+      if (!session) return;
+
+      if (session.rawKey !== rawKey) {
+        // The song changed: absolute abort (spec 19, W3).
+        setSyncSession(abortManualSync(session));
+        surfaceLockRef.current = false;
+        debugLog('manual', 'manual-sync-aborted', { reason: 'song-changed' });
+        return;
+      }
+      if (!playing && session.state === 'syncing') {
+        setSyncSession(pauseManualSync(session));
+        debugLog('manual', 'manual-sync-paused', { reason: 'playback-paused' });
+        return;
+      }
+      if (
+        previousPosition !== null &&
+        Math.abs(positionMs - previousPosition) > MANUAL_SYNC_SEEK_THRESHOLD_MS
+      ) {
+        setSyncSession(rearmManualSync(pauseManualSync(session), positionMs));
+        debugLog('manual', 'manual-sync-paused', { reason: 'seek' });
+        return;
+      }
+      if (playing && session.state === 'paused') {
+        setSyncSession(resumeManualSync(rearmManualSync(session, positionMs)));
+        debugLog('manual', 'manual-sync-resumed', {});
+      }
+    },
+    [setSyncSession]
+  );
+
+  // Sync keys are only live while a session is syncing.
+  useEffect(() => {
+    if (!syncSession || syncSession.state !== 'syncing') return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar' || event.key === 'ArrowDown') {
+        event.preventDefault();
+        handleStamp();
+      } else if (event.key === 'Backspace' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        handleStepBack();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [syncSession, handleStamp, handleStepBack]);
+
+  // Losing the window focus pauses the session so no orphan keypress lands.
+  useEffect(() => {
+    const onBlur = () => {
+      const session = syncSessionRef.current;
+      if (!session || session.state !== 'syncing') return;
+      setSyncSession(pauseManualSync(session));
+      debugLog('manual', 'manual-sync-paused', { reason: 'window-blur' });
+    };
+    window.addEventListener('blur', onBlur);
+    return () => window.removeEventListener('blur', onBlur);
+  }, [setSyncSession]);
 
   // Capture the current playback, align it against the known plain lyrics, and
   // persist the merged result so it wins future lookups for this song.
@@ -440,7 +744,7 @@ export default function App() {
       setFeedbackState('none');
       scorerRef.current.reset();
       setLyricsData(emptyLyricsData(song));
-      void loadLyrics(song, aiConfig, false);
+      void loadLyrics(song, aiConfig, { useCache: false });
     },
     [aiConfig, loadLyrics]
   );
@@ -635,6 +939,11 @@ export default function App() {
         ? trackKey(rawMetadata.title || rawMetadata.artist, rawMetadata.artist)
         : trackKey(rawTitle ?? '', rawArtist ?? '');
 
+      // The sync session watches the raw identity, the play state and the
+      // position (spec 19, W3).
+      rawIdentityRef.current = rawKey;
+      handleSyncSignals(rawKey, playing, positionMs);
+
       // A manual correction is authoritative and must be looked up against the
       // *raw* identity, before UIA or artist memory can rewrite the title.
       const override = getOverride(
@@ -824,6 +1133,20 @@ export default function App() {
               karaokeAIConfigured={isKaraokeAIConfigured(karaokeAIConfig)}
               lookupOutcome={lookupOutcome}
               onRetryLookup={handleRetryLookup}
+              hasManualLyrics={manualEntry !== null}
+              manualEntry={manualEntry}
+              isEditing={isEditingManual}
+              editorText={editorText}
+              onStartEdit={handleStartEdit}
+              onSaveEdit={handleSaveEdit}
+              onCancelEdit={handleCancelEdit}
+              onDeleteManual={handleDeleteManual}
+              onSkipManual={handleSkipManual}
+              syncStatus={syncSession ? describeManualSync(syncSession) : undefined}
+              syncActive={syncSession !== null && syncSession.state !== 'aborted'}
+              onStartSync={handleStartSync}
+              onCancelSync={handleCancelSync}
+              onSaveSync={handleSaveSync}
               layoutWidth={layoutWidthFor(settings.layoutPreset)}
             />
           )}

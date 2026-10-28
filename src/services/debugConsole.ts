@@ -27,6 +27,7 @@ export type DebugScope =
   | 'gate'
   | 'cache'
   | 'override'
+  | 'manual'
   | 'uia'
   | 'ui';
 
@@ -40,6 +41,7 @@ export const DEBUG_SCOPES: DebugScope[] = [
   'gate',
   'cache',
   'override',
+  'manual',
   'uia',
   'ui',
 ];

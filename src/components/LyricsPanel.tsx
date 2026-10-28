@@ -2,8 +2,23 @@ import React from 'react';
 import { LyricsData, WindowState, FeedbackState, KaraokeAIStatus } from '../types/lyrics';
 import { KaraokeLyricsView } from './KaraokeLyricsView';
 import { FullSheetLyricsView } from './FullSheetLyricsView';
+import { ManualLyricsView } from './ManualLyricsView';
+import { ManualLyricsEditor } from './ManualLyricsEditor';
 import { InfoPanel } from './InfoPanel';
-import { Info, ThumbsUp, ThumbsDown, Sparkles, Loader2, X, AlertCircle, CheckCircle2 } from 'lucide-react';
+import {
+  Info,
+  ThumbsUp,
+  ThumbsDown,
+  Sparkles,
+  Loader2,
+  X,
+  AlertCircle,
+  CheckCircle2,
+  Pencil,
+  Trash2,
+  RefreshCw,
+  Timer,
+} from 'lucide-react';
 import { LookupOutcome } from '../services/lookupOutcome';
 
 interface LyricsPanelProps {
@@ -27,6 +42,28 @@ interface LyricsPanelProps {
   lookupOutcome?: LookupOutcome;
   /** Re-runs the lookup after a transient failure. */
   onRetryLookup?: () => void;
+  /** A saved manual entry exists for this song (spec 19, W2). */
+  hasManualLyrics?: boolean;
+  /** The saved manual entry itself (shown by the `Manual (Synced)` view). */
+  manualEntry?: LyricsData | null;
+  /** The manual lyrics editor is open. */
+  isEditing?: boolean;
+  /** The text the editor opens with. */
+  editorText?: string;
+  onStartEdit?: () => void;
+  onSaveEdit?: (text: string) => void;
+  onCancelEdit?: () => void;
+  /** Removes the saved manual lyrics (confirmed in the app). */
+  onDeleteManual?: () => void;
+  /** Runs one provider lookup without the manual lyrics. */
+  onSkipManual?: () => void;
+  /** Status of the running sync session (spec 19, W3). */
+  syncStatus?: string;
+  /** A sync session is active (locks the editor). */
+  syncActive?: boolean;
+  onStartSync?: () => void;
+  onCancelSync?: () => void;
+  onSaveSync?: () => void;
   layoutWidth: number;
 }
 
@@ -54,6 +91,20 @@ export const LyricsPanel: React.FC<LyricsPanelProps> = ({
   karaokeAIConfigured = false,
   lookupOutcome,
   onRetryLookup,
+  hasManualLyrics = false,
+  manualEntry = null,
+  isEditing = false,
+  editorText = '',
+  onStartEdit,
+  onSaveEdit,
+  onCancelEdit,
+  onDeleteManual,
+  onSkipManual,
+  syncStatus,
+  syncActive = false,
+  onStartSync,
+  onCancelSync,
+  onSaveSync,
   layoutWidth,
 }) => {
   const [showInfo, setShowInfo] = React.useState(false);
@@ -78,6 +129,10 @@ export const LyricsPanel: React.FC<LyricsPanelProps> = ({
     lyricsData.syncedLyrics.length === 0 &&
     plainLineCount > 0 &&
     Boolean(onGenerateKaraoke);
+  // Manual lyrics are already the user's own decision: thumbs-up/down would
+  // copy them into the accepted store (where Delete could not remove them) and
+  // the provider index does not exist for the Manual provider (spec 19).
+  const isManualProvider = lyricsData.provider === 'Manual';
 
   return (
     <div
@@ -124,7 +179,40 @@ export const LyricsPanel: React.FC<LyricsPanelProps> = ({
             >
               Full Sheet
             </button>
+            {hasManualLyrics && (
+              <button
+                type="button"
+                onClick={() => onUpdateWindowState({ viewMode: 'manual' })}
+                data-testid="view-manual"
+                className={`px-2 sm:px-2.5 py-1 text-xs font-semibold rounded-md transition-all whitespace-nowrap ${
+                  windowState.viewMode === 'manual'
+                    ? 'bg-cyan-500 text-slate-950 shadow-sm'
+                    : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                Manual<span className="hidden sm:inline"> (Synced)</span>
+              </button>
+            )}
           </div>
+
+          {/* Manual lyrics editor entry (spec 19, W2). */}
+          <button
+            type="button"
+            onClick={onStartEdit}
+            disabled={!onStartEdit || syncActive}
+            data-testid="manual-edit"
+            title={
+              syncActive
+                ? 'Sync in progress - the manual lyrics are locked'
+                : hasManualLyrics
+                  ? 'Edit the saved manual lyrics'
+                  : 'Add the lyrics manually'
+            }
+            className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-slate-800 px-2.5 py-1.5 text-xs font-semibold text-slate-200 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            {hasManualLyrics ? 'Edit' : 'Manual'}
+          </button>
 
           {/* Sync calibration */}
           <div className="relative">
@@ -279,7 +367,31 @@ export const LyricsPanel: React.FC<LyricsPanelProps> = ({
       {/* ─── Body: lyrics + Info drawer ─────────────────────────────────── */}
       <div className="flex-1 min-h-0 flex overflow-hidden relative">
         <div className="flex-1 h-full overflow-hidden">
-          {windowState.viewMode === 'karaoke' ? (
+          {isEditing ? (
+            <ManualLyricsEditor
+              initialText={editorText}
+              readOnly={syncActive}
+              lockedReason="The manual lyrics are locked while a sync session is running."
+              onSave={(text) => onSaveEdit?.(text)}
+              onCancel={() => onCancelEdit?.()}
+            />
+          ) : windowState.viewMode === 'manual' && manualEntry ? (
+            <ManualLyricsView
+              lyrics={manualEntry.syncedLyrics}
+              plainLyrics={manualEntry.plainLyrics}
+              songTitle={manualEntry.title}
+              artist={manualEntry.artist}
+              fontSize={windowState.fontSize}
+              autoScroll={windowState.autoScroll}
+              currentTimeMs={currentTimeMs}
+              syncOffsetMs={syncOffsetMs}
+              onSeek={onSeek}
+              isLoading={isLoadingLyrics}
+              lookupOutcome={lookupOutcome}
+              onRetryLookup={onRetryLookup}
+              syncStatus={syncStatus}
+            />
+          ) : windowState.viewMode === 'karaoke' ? (
             <KaraokeLyricsView
               lyrics={lyricsData.syncedLyrics}
               currentTimeMs={currentTimeMs}
@@ -327,6 +439,74 @@ export const LyricsPanel: React.FC<LyricsPanelProps> = ({
           <span className="text-[11px] font-semibold text-cyan-400">
             Provider: {lyricsData.provider}
           </span>
+          {hasManualLyrics && (
+            <>
+              <span className="text-slate-600">•</span>
+              <div className="flex items-center gap-1" role="group" aria-label="Manual lyrics">
+                <button
+                  type="button"
+                  onClick={onDeleteManual}
+                  disabled={!onDeleteManual}
+                  data-testid="manual-delete"
+                  title="Delete the saved manual lyrics for this song"
+                  className="flex items-center gap-1 rounded-md border border-white/10 bg-slate-800 px-1.5 py-0.5 text-[10px] font-semibold text-rose-300 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Trash2 className="h-3 w-3" /> Delete
+                </button>
+                <button
+                  type="button"
+                  onClick={onSkipManual}
+                  disabled={!onSkipManual}
+                  data-testid="manual-skip"
+                  title="Search the providers for this song (the manual lyrics are kept)"
+                  className="flex items-center gap-1 rounded-md border border-white/10 bg-slate-800 px-1.5 py-0.5 text-[10px] font-semibold text-slate-300 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <RefreshCw className="h-3 w-3" /> Skip
+                </button>
+              </div>
+            </>
+          )}
+          {(hasManualLyrics || (lyricsData.syncedLyrics.length === 0 && plainLineCount > 0)) && (
+            <>
+              <span className="text-slate-600">•</span>
+              <div className="flex items-center gap-1" role="group" aria-label="Manual sync">
+                <button
+                  type="button"
+                  onClick={onStartSync}
+                  disabled={!onStartSync || syncActive}
+                  data-testid="manual-sync"
+                  title="Sync the lyrics by hand: press Enter (or Space / Down) to set the current line break, Backspace (or Up) to step back to the last break."
+                  className="flex items-center gap-1 rounded-md border border-cyan-500/40 bg-cyan-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Timer className="h-3 w-3" /> Manual Sync
+                </button>
+                {syncActive && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={onSaveSync}
+                      disabled={!onSaveSync}
+                      data-testid="manual-sync-save"
+                      title="Save the manual timings"
+                      className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-40"
+                    >
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onCancelSync}
+                      disabled={!onCancelSync}
+                      data-testid="manual-sync-cancel"
+                      title="Discard the manual timings"
+                      className="rounded-md border border-white/10 bg-slate-800 px-1.5 py-0.5 text-[10px] font-semibold text-slate-300 hover:bg-slate-700 disabled:opacity-40"
+                    >
+                      Cancel
+                    </button>
+                  </>
+                )}
+              </div>
+            </>
+          )}
           <span className="text-slate-600">•</span>
           <span className="text-[11px] text-slate-400">
             {lyricsData.syncedLyrics.length > 0
@@ -338,8 +518,12 @@ export const LyricsPanel: React.FC<LyricsPanelProps> = ({
             <button
               type="button"
               onClick={onThumbsUp}
-              disabled={!onThumbsUp || isLoadingLyrics}
-              title="This lyrics result is correct - save it"
+              disabled={!onThumbsUp || isLoadingLyrics || isManualProvider}
+              title={
+                isManualProvider
+                  ? 'Manual lyrics are already saved locally'
+                  : 'This lyrics result is correct - save it'
+              }
               aria-pressed={feedbackState === 'up'}
               data-testid="thumbs-up"
               className={`p-1 rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
@@ -353,8 +537,12 @@ export const LyricsPanel: React.FC<LyricsPanelProps> = ({
             <button
               type="button"
               onClick={onThumbsDown}
-              disabled={!onThumbsDown || isLoadingLyrics}
-              title="Not right - try the next provider"
+              disabled={!onThumbsDown || isLoadingLyrics || isManualProvider}
+              title={
+                isManualProvider
+                  ? 'Manual lyrics have no provider to advance to - use Skip'
+                  : 'Not right - try the next provider'
+              }
               aria-pressed={feedbackState === 'down'}
               data-testid="thumbs-down"
               className={`p-1 rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${

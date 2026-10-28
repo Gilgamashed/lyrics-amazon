@@ -57,6 +57,43 @@ async function seedLongLyrics(page: Page) {
   );
 }
 
+const MANUAL_STORE_KEY = 'lyrics-amazon:manual-lyrics:v1';
+
+/**
+ * Seeds the manual-lyrics store so the user's own lyrics win the lookup
+ * (spec 19). The keys are the normalized lookup identities of the scripted
+ * tracks.
+ */
+async function seedManualLyrics(page: Page) {
+  const make = (title: string, artist: string) => ({
+    songId: `manual-${title}`,
+    title,
+    artist,
+    album: '',
+    albumArt: '',
+    provider: 'Manual',
+    syncedLyrics: [
+      { id: 'm0', startTimeMs: 1000, text: `${title} manual line` },
+    ],
+    plainLyrics: `${title} manual line`,
+    annotations: [],
+    trivia: [],
+  });
+
+  const store = {
+    'espresso|sabrina carpenter': make('Espresso', 'Sabrina Carpenter'),
+    'cruel summer|taylor swift': make('Cruel Summer', 'Taylor Swift'),
+    'city lights|unknown artist': make('City Lights', 'Unknown Artist'),
+  };
+
+  await page.addInitScript(
+    ([key, payload]: [string, Record<string, unknown>]) => {
+      window.localStorage.setItem(key, JSON.stringify(payload));
+    },
+    [MANUAL_STORE_KEY, store] as [string, Record<string, unknown>]
+  );
+}
+
 test.describe('Web UI against the native bridge', () => {
   test('boots and reflects the native bridge track', async ({ page }) => {
     await page.goto('/');
@@ -229,5 +266,18 @@ test.describe('Web UI against the native bridge', () => {
     await page.getByRole('button', { name: 'Options' }).click();
     await page.getByTestId('options-open-debug').click();
     await expect(page.getByTestId('debug-terminal')).toBeVisible();
+  });
+
+  // Spec 19: the user's own lyrics win the lookup and are labelled Manual.
+  test('shows the saved manual lyrics for the detected track', async ({ page }) => {
+    await seedManualLyrics(page);
+    await page.goto('/');
+    await expect(trackTitle(page)).toBeVisible({ timeout: 20_000 });
+
+    await expect(page.getByText('Provider: Manual')).toBeVisible();
+    await expect(page.getByTestId('manual-edit')).toContainText('Edit');
+    await expect(page.getByTestId('manual-delete')).toBeVisible();
+    await expect(page.getByTestId('manual-skip')).toBeVisible();
+    await expect(page.getByTestId('thumbs-up')).toBeDisabled();
   });
 });
