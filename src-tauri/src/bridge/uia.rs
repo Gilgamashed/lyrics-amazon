@@ -754,6 +754,11 @@ impl UiaRuntime {
     }
 
     pub fn enrich(&self, mut now: NowPlaying) -> NowPlaying {
+        // UIA reads the Amazon Music window, so it must never enrich another
+        // app's SMTC session (Spotify, a browser, Prime Video, etc.).
+        if !now.is_amazon {
+            return now;
+        }
         let raw = SmtcSnapshot::from_now_playing(&now);
         if !needs_uia(
             raw.title.as_deref(),
@@ -1147,9 +1152,25 @@ mod tests {
         let mut now = NowPlaying::idle("windows-smtc");
         now.title = Some("Breed".to_string());
         now.artist = None;
+        now.is_amazon = true;
         let enriched = runtime.enrich(now);
         assert_eq!(enriched.uia_attempt.as_deref(), Some("disabled"));
         assert_eq!(enriched.title.as_deref(), Some("Breed"));
+    }
+
+    #[test]
+    fn non_amazon_sessions_are_never_enriched() {
+        let runtime = UiaRuntime {
+            enabled: true,
+            service: None,
+        };
+        let mut now = NowPlaying::idle("windows-smtc");
+        now.title = Some("Spotify Track".to_string());
+        now.artist = None;
+        now.is_amazon = false;
+        let enriched = runtime.enrich(now);
+        assert_eq!(enriched.uia_attempt, None);
+        assert_eq!(enriched.metadata_source, None);
     }
 
     #[test]
@@ -1160,6 +1181,7 @@ mod tests {
         raw.title = Some(String::new());
         raw.artist = Some(String::new());
         raw.is_playing = true;
+        raw.is_amazon = true;
 
         for _ in 0..50 {
             let enriched = runtime.enrich(raw.clone());
