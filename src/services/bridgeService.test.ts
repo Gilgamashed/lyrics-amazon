@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NowPlaying } from '../types/lyrics';
+import { clearDebugEvents, getDebugEvents } from './debugConsole';
 import {
   createBridgeClient,
   fetchNowPlaying,
@@ -184,6 +185,38 @@ describe('createBridgeClient', () => {
 
     expect(onNowPlaying).toHaveBeenCalledTimes(2);
     expect(onNowPlaying).toHaveBeenLastCalledWith(PLAYING);
+  });
+
+  it('logs UIA enrichment events only when the reading changes', () => {
+    clearDebugEvents();
+    const onNowPlaying = vi.fn();
+    const client = createBridgeClient({ onNowPlaying });
+    client.start();
+    const ws = MockWebSocket.last();
+    ws.open();
+
+    const enriched: NowPlaying = {
+      ...PLAYING,
+      title: 'The Red',
+      artist: 'Chevelle',
+      metadataSource: 'smtc+uia',
+      sourceTitle: '',
+      sourceArtist: 'Chevelle',
+      uiaAttempt: 'found',
+    };
+    ws.sendMessage(JSON.stringify(enriched));
+    ws.sendMessage(JSON.stringify(enriched));
+
+    expect(onNowPlaying).toHaveBeenCalledTimes(2);
+    const uiaEvents = getDebugEvents().filter((event) => event.scope === 'uia');
+    expect(uiaEvents).toHaveLength(1);
+    expect(uiaEvents[0].event).toBe('uia-enrichment');
+    expect(uiaEvents[0].data).toMatchObject({
+      metadataSource: 'smtc+uia',
+      attempt: 'found',
+      rawTitle: '',
+      rawArtist: 'Chevelle',
+    });
   });
 
   it('resets the backoff after a successful connect', async () => {

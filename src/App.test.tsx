@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import { APP_VERSION } from './appVersion';
 import { fetchLyrics } from './services/lyricsService';
-import { recordPlay } from './services/playHistoryStore';
+import { getRanking, recordPlay } from './services/playHistoryStore';
 import { setOverride, trackKey } from './services/metaOverrideStore';
 import { getArtistTitle } from './services/artistTitleMemory';
 import { capturePlayback } from './services/captureService';
@@ -346,6 +346,106 @@ describe('App', () => {
     }
   });
 
+  it('keeps the play session through a UIA artist recovery and records the recovered artist', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(0);
+    try {
+      render(<App />);
+      await act(async () => {
+        bridgeBridge.onConnectionChange('connected');
+      });
+      await act(async () => {
+        bridgeBridge.onNowPlaying(
+          nowPlaying({ title: 'Breed', artist: 'Unknown Artist', positionMs: 0 })
+        );
+      });
+
+      for (let i = 1; i <= 20; i += 1) {
+        vi.setSystemTime(i * 1000);
+        runFrame();
+      }
+      expect(vi.mocked(recordPlay)).not.toHaveBeenCalled();
+
+      // The bridge enriches the same raw reading with the recovered artist.
+      await act(async () => {
+        bridgeBridge.onNowPlaying(
+          nowPlaying({
+            title: 'Breed',
+            artist: 'Nirvana',
+            metadataSource: 'smtc+uia',
+            sourceTitle: 'Breed',
+            sourceArtist: 'Unknown Artist',
+            uiaAttempt: 'found',
+            positionMs: 0,
+          })
+        );
+      });
+
+      for (let i = 21; i <= 31; i += 1) {
+        vi.setSystemTime(i * 1000);
+        runFrame();
+      }
+
+      expect(vi.mocked(recordPlay)).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(recordPlay)).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Breed', artist: 'Nirvana' }),
+        'amazon',
+        expect.any(Number)
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('migrates an already-recorded Unknown Artist play when UIA recovers the artist', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(0);
+    try {
+      render(<App />);
+      await act(async () => {
+        bridgeBridge.onConnectionChange('connected');
+      });
+      await act(async () => {
+        bridgeBridge.onNowPlaying(
+          nowPlaying({ title: 'Breed', artist: 'Unknown Artist', positionMs: 0 })
+        );
+      });
+
+      for (let i = 1; i <= 31; i += 1) {
+        vi.setSystemTime(i * 1000);
+        runFrame();
+      }
+      expect(vi.mocked(recordPlay)).toHaveBeenCalledTimes(1);
+      expect(getRanking('lifetime', 31_000)[0]).toMatchObject({
+        title: 'Breed',
+        artist: 'Unknown Artist',
+        count: 1,
+      });
+
+      vi.setSystemTime(35_000);
+      await act(async () => {
+        bridgeBridge.onNowPlaying(
+          nowPlaying({
+            title: 'Breed',
+            artist: 'Nirvana',
+            metadataSource: 'smtc+uia',
+            sourceTitle: 'Breed',
+            sourceArtist: 'Unknown Artist',
+            uiaAttempt: 'found',
+            positionMs: 0,
+          })
+        );
+      });
+
+      const ranking = getRanking('lifetime', 35_000);
+      expect(ranking).toHaveLength(1);
+      expect(ranking[0]).toMatchObject({ title: 'Breed', artist: 'Nirvana', count: 1 });
+      expect(vi.mocked(recordPlay)).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('does not count a non-Amazon desktop session, even after 30s', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(0);
@@ -538,6 +638,69 @@ describe('App', () => {
     });
     expect(within(screen.getByRole('banner')).getByText('Title not reported — fix to search')).toBeInTheDocument();
     expect(vi.mocked(fetchLyrics)).not.toHaveBeenCalled();
+  });
+
+  it('applies a UIA enrichment once without treating it as a new track', async () => {
+    render(<App />);
+    await act(async () => {
+      bridgeBridge.onConnectionChange('connected');
+    });
+    await act(async () => {
+      bridgeBridge.onNowPlaying(nowPlaying({ title: '', artist: 'Chevelle' }));
+    });
+    await screen.findByText('Title not reported — fix to search');
+
+    vi.mocked(fetchLyrics).mockClear();
+    const enriched = nowPlaying({
+      title: 'The Red',
+      artist: 'Chevelle',
+      metadataSource: 'smtc+uia',
+      sourceTitle: '',
+      sourceArtist: 'Chevelle',
+      uiaAttempt: 'found',
+    });
+
+    await act(async () => {
+      bridgeBridge.onNowPlaying(enriched);
+    });
+    expect(within(screen.getByRole('banner')).getByText('The Red')).toBeInTheDocument();
+    expect(vi.mocked(fetchLyrics)).toHaveBeenCalledTimes(1);
+
+    // The same enriched reading on the next poll tick must not refetch.
+    vi.mocked(fetchLyrics).mockClear();
+    await act(async () => {
+      bridgeBridge.onNowPlaying(enriched);
+    });
+    expect(within(screen.getByRole('banner')).getByText('The Red')).toBeInTheDocument();
+    expect(vi.mocked(fetchLyrics)).not.toHaveBeenCalled();
+  });
+
+  it('lets a manual override win over a UIA enrichment', async () => {
+    setOverride('Chevelle', 'Chevelle', { title: 'Manual Title', artist: 'Chevelle' });
+    render(<App />);
+    await act(async () => {
+      bridgeBridge.onConnectionChange('connected');
+    });
+    await act(async () => {
+      bridgeBridge.onNowPlaying(nowPlaying({ title: '', artist: 'Chevelle' }));
+    });
+    expect(within(screen.getByRole('banner')).getByText('Manual Title')).toBeInTheDocument();
+
+    await act(async () => {
+      bridgeBridge.onNowPlaying(
+        nowPlaying({
+          title: 'The Red',
+          artist: 'Chevelle',
+          metadataSource: 'smtc+uia',
+          sourceTitle: '',
+          sourceArtist: 'Chevelle',
+          uiaAttempt: 'found',
+        })
+      );
+    });
+
+    expect(within(screen.getByRole('banner')).getByText('Manual Title')).toBeInTheDocument();
+    expect(within(screen.getByRole('banner')).queryByText('The Red')).not.toBeInTheDocument();
   });
 
   it('generates AI karaoke for a plain-only track and persists it', async () => {

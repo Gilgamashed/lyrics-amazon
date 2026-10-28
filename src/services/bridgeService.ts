@@ -90,6 +90,10 @@ export function createBridgeClient(options: BridgeClientOptions): BridgeClient {
             parsed.artist ?? '',
             parsed.album ?? '',
             parsed.isPlaying ? 'playing' : 'paused',
+            parsed.metadataSource ?? '',
+            parsed.uiaAttempt ?? '',
+            parsed.sourceTitle ?? '',
+            parsed.sourceArtist ?? '',
           ].join('|');
           if (identity !== lastIdentity) {
             lastIdentity = identity;
@@ -104,7 +108,21 @@ export function createBridgeClient(options: BridgeClientOptions): BridgeClient {
               isPlaying: parsed.isPlaying,
               isAmazon: parsed.isAmazon,
               hasAlbumArt: Boolean(parsed.albumArt),
+              metadataSource: parsed.metadataSource,
+              sourceTitle: parsed.sourceTitle,
+              sourceArtist: parsed.sourceArtist,
+              uiaAttempt: parsed.uiaAttempt,
             });
+            if (parsed.metadataSource || parsed.uiaAttempt) {
+              debugLog('uia', 'uia-enrichment', {
+                metadataSource: parsed.metadataSource,
+                attempt: parsed.uiaAttempt,
+                rawTitle: parsed.sourceTitle,
+                rawArtist: parsed.sourceArtist,
+                title: parsed.title,
+                artist: parsed.artist,
+              }, parsed.uiaAttempt === 'found' ? 'info' : 'warn');
+            }
           }
           options.onNowPlaying(parsed);
         }

@@ -120,6 +120,8 @@ export type KaraokeAIStatus =
   | 'done'
   | 'error';
 
+export type UiaAttempt = 'found' | 'timeout' | 'sparse-tree' | 'no-anchor' | 'disabled';
+
 export interface NowPlaying {
   source: string;
   title: string | null;
@@ -131,4 +133,11 @@ export interface NowPlaying {
   appId: string | null;
   isAmazon: boolean;
   albumArt: string | null;
+  /** Set when the bridge merged a UIA fallback result into this reading. */
+  metadataSource?: 'smtc' | 'smtc+uia';
+  /** Original SMTC title/artist before a UIA merge (empty string = missing). */
+  sourceTitle?: string | null;
+  sourceArtist?: string | null;
+  /** Last bounded UIA attempt result, for the diagnostics terminal. */
+  uiaAttempt?: UiaAttempt;
 }

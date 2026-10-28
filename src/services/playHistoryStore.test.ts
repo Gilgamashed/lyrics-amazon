@@ -6,6 +6,7 @@ import {
   PlaySessionScorer,
   getHistoryStats,
   getRanking,
+  mergePlayIdentity,
   recordPlay,
   resetHistory,
   songKey,
@@ -184,6 +185,92 @@ describe('storage availability', () => {
         delete (globalThis as { localStorage?: unknown }).localStorage;
       }
     }
+  });
+});
+
+describe('mergePlayIdentity', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('is a no-op when the play has not been recorded yet', () => {
+    const unknown = makeSong({ title: 'Breed', artist: 'Unknown Artist' });
+    const recovered = makeSong({ title: 'Breed', artist: 'Nirvana' });
+
+    expect(mergePlayIdentity(unknown, recovered, 'amazon')).toBe(false);
+    expect(getHistoryStats()).toEqual({ songs: 0, plays: 0 });
+  });
+
+  it('moves an Unknown Artist play to the recovered identity', () => {
+    const now = Date.now();
+    const unknown = makeSong({
+      title: 'Breed',
+      artist: 'Unknown Artist',
+      album: 'Nevermind',
+      albumArt: 'unknown-art',
+    });
+    const recovered = makeSong({
+      title: 'Breed',
+      artist: 'Nirvana',
+      album: 'Nevermind',
+      albumArt: 'real-art',
+    });
+    recordPlay(unknown, 'amazon', now - 500);
+
+    expect(mergePlayIdentity(unknown, recovered, 'amazon')).toBe(true);
+
+    const ranking = getRanking('lifetime', now);
+    expect(ranking).toHaveLength(1);
+    expect(ranking[0]).toMatchObject({
+      title: 'Breed',
+      artist: 'Nirvana',
+      count: 1,
+      albumArt: 'real-art',
+    });
+    expect(getHistoryStats()).toEqual({ songs: 1, plays: 1 });
+  });
+
+  it('merges with an existing recovered record without double-counting', () => {
+    const now = Date.now();
+    const unknown = makeSong({ title: 'Breed', artist: 'Unknown Artist', albumArt: '' });
+    const recovered = makeSong({ title: 'Breed', artist: 'Nirvana', albumArt: 'real-art' });
+    recordPlay(recovered, 'amazon', now - 5000);
+    recordPlay(recovered, 'amazon', now - 4000);
+    recordPlay(unknown, 'amazon', now - 1000);
+    recordPlay(unknown, 'amazon', now - 1000);
+
+    expect(mergePlayIdentity(unknown, recovered, 'amazon')).toBe(true);
+
+    const ranking = getRanking('lifetime', now);
+    expect(ranking).toHaveLength(1);
+    expect(ranking[0].count).toBe(3);
+    expect(ranking[0].albumArt).toBe('real-art');
+    expect(getHistoryStats()).toEqual({ songs: 1, plays: 3 });
+  });
+
+  it('updates metadata in place when the identity key is unchanged', () => {
+    const now = Date.now();
+    const before = makeSong({ title: 'Breed', artist: 'Nirvana', album: 'old', albumArt: '' });
+    const after = makeSong({ title: 'Breed', artist: 'Nirvana', album: 'new', albumArt: 'art' });
+    recordPlay(before, 'amazon', now);
+
+    expect(mergePlayIdentity(before, after, 'amazon')).toBe(true);
+    const ranking = getRanking('lifetime', now);
+    expect(ranking[0]).toMatchObject({ album: 'new', albumArt: 'art', count: 1 });
+  });
+
+  it('keeps existing album art when the recovered identity has none', () => {
+    const now = Date.now();
+    const unknown = makeSong({
+      title: 'Breed',
+      artist: 'Unknown Artist',
+      albumArt: 'unknown-art',
+    });
+    const recovered = makeSong({ title: 'Breed', artist: 'Nirvana', albumArt: '' });
+    recordPlay(unknown, 'amazon', now);
+
+    mergePlayIdentity(unknown, recovered, 'amazon');
+    expect(getRanking('lifetime', now)[0].albumArt).toBe('unknown-art');
   });
 });
 

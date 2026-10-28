@@ -24,7 +24,12 @@ import {
 } from './services/karaokeAIConfigStore';
 import { createBridgeClient, BridgeConnectionState } from './services/bridgeService';
 import { loadSettings, saveSettings } from './services/settingsStore';
-import { PlaySessionScorer, recordPlay, resetHistory } from './services/playHistoryStore';
+import {
+  PlaySessionScorer,
+  mergePlayIdentity,
+  recordPlay,
+  resetHistory,
+} from './services/playHistoryStore';
 import { layoutWidthFor } from './services/layoutPresets';
 import {
   nextClockPositionMs,
@@ -239,6 +244,7 @@ export default function App() {
   // in place, so a poll tick with the same raw identity must not re-process it
   // (or undo a missing-title fix).
   const lastDesktopRawKeyRef = useRef<string | null>(null);
+  const lastDesktopEffectiveKeyRef = useRef<string | null>(null);
   const lastReadingKeyRef = useRef<string | null>(null);
   const lastNowPlayingRef = useRef<NowPlaying | null>(null);
   const desktopHandlerRef = useRef<(nowPlaying: NowPlaying) => void>(() => {});
@@ -425,12 +431,43 @@ export default function App() {
       const raw = lastNowPlayingRef.current;
       if (!raw) return;
       const song = resolveDesktopSong(raw, metadata);
+      lastDesktopEffectiveKeyRef.current = trackKey(
+        metadata.title || metadata.artist,
+        metadata.artist
+      );
       setCurrentSong(song);
       lastProviderIndexRef.current = 0;
       setFeedbackState('none');
       scorerRef.current.reset();
       setLyricsData(emptyLyricsData(song));
       void loadLyrics(song, aiConfig, false);
+    },
+    [aiConfig, loadLyrics]
+  );
+
+  /**
+   * Applies a UIA enrichment for the same raw SMTC reading. This is a metadata
+   * refinement, not a new track: the play session/scorer is deliberately not
+   * reset, and an already-recorded Unknown Artist play is migrated to the
+   * recovered identity.
+   */
+  const applyUiaEnrichment = useCallback(
+    (metadata: SanitizedMetadata) => {
+      const raw = lastNowPlayingRef.current;
+      if (!raw) return;
+      const previous = currentSongRef.current;
+      const song = resolveDesktopSong(raw, metadata);
+      lastDesktopEffectiveKeyRef.current = trackKey(
+        metadata.title || metadata.artist,
+        metadata.artist
+      );
+      setCurrentSong(song);
+      lastProviderIndexRef.current = 0;
+      setFeedbackState('none');
+      setLookupOutcome(undefined);
+      setLyricsData(emptyLyricsData(song));
+      void loadLyrics(song, aiConfig);
+      mergePlayIdentity(previous, song, 'amazon');
     },
     [aiConfig, loadLyrics]
   );
@@ -517,116 +554,187 @@ export default function App() {
       const positionMs = typeof nowPlaying.positionMs === 'number' ? nowPlaying.positionMs : 0;
       const { durationMs, durationAuthoritative } = resolveDuration(nowPlaying.durationMs);
 
-      const inspection = inspectMetadata(nowPlaying.title, nowPlaying.artist);
+      const rawTitle = nowPlaying.sourceTitle ?? nowPlaying.title;
+      const rawArtist = nowPlaying.sourceArtist ?? nowPlaying.artist;
+      const rawInspection = inspectMetadata(rawTitle, rawArtist);
+      const effectiveInspection = inspectMetadata(nowPlaying.title, nowPlaying.artist);
+      const metadataSource = nowPlaying.metadataSource;
+      const uiaAttempt = nowPlaying.uiaAttempt;
+
       // The bridge republishes every poll tick; only report a decision when it
       // actually changes so the terminal stays readable.
-      const decisionKey = `${inspection.status}|${inspection.title}|${inspection.artist}`;
+      const decisionKey = [
+        rawInspection.status,
+        rawInspection.title,
+        rawInspection.artist,
+        effectiveInspection.status,
+        effectiveInspection.title,
+        effectiveInspection.artist,
+        metadataSource ?? '',
+        uiaAttempt ?? '',
+      ].join('|');
       if (decisionKey !== lastReadingKeyRef.current) {
         lastReadingKeyRef.current = decisionKey;
+        const uiaEnriched = metadataSource === 'smtc+uia';
         debugLog(
           'metadata',
-          inspection.status === 'empty-reading'
-            ? 'reading-empty-kept-previous'
-            : inspection.titleMissing
-              ? 'reading-adopted-missing-title'
-              : inspection.status === 'duplicate'
-                ? 'reading-adopted-title-only'
-                : 'reading-accepted',
+          uiaEnriched
+            ? 'reading-uia-enriched'
+            : rawInspection.status === 'empty-reading'
+              ? 'reading-empty-kept-previous'
+              : rawInspection.titleMissing
+                ? 'reading-adopted-missing-title'
+                : rawInspection.status === 'duplicate'
+                  ? 'reading-adopted-title-only'
+                  : 'reading-accepted',
           {
-            rawTitle: nowPlaying.title,
-            rawArtist: nowPlaying.artist,
+            rawTitle,
+            rawArtist,
             rawAlbum: nowPlaying.album,
+            effectiveTitle: nowPlaying.title,
+            effectiveArtist: nowPlaying.artist,
             durationMs: nowPlaying.durationMs,
             playing,
-            status: inspection.status,
-            title: inspection.ok ? inspection.title : undefined,
-            artist: inspection.ok ? inspection.artist : undefined,
-            splitFrom: inspection.splitFrom,
-            reason: inspection.ok ? undefined : inspection.reason,
+            status: rawInspection.status,
+            title: rawInspection.ok ? rawInspection.title : undefined,
+            artist: rawInspection.ok ? rawInspection.artist : undefined,
+            splitFrom: rawInspection.splitFrom,
+            reason: rawInspection.ok ? undefined : rawInspection.reason,
+            metadataSource,
+            uiaAttempt,
           },
-          inspection.ok ? (inspection.titleMissing ? 'warn' : 'info') : 'warn'
+          rawInspection.ok ? (rawInspection.titleMissing ? 'warn' : 'info') : 'warn'
         );
       }
 
-      const detectedMetadata: SanitizedMetadata | null = inspection.ok
+      if (!playing) {
+        applySnapshot(positionMs, playing, durationMs, durationAuthoritative);
+        return;
+      }
+
+      const rawMetadata: SanitizedMetadata | null = rawInspection.ok
         ? {
-            title: inspection.title,
-            artist: inspection.artist,
-            titleMissing: inspection.titleMissing,
-            splitFrom: inspection.splitFrom,
-            status: inspection.status,
+            title: rawInspection.title,
+            artist: rawInspection.artist,
+            titleMissing: rawInspection.titleMissing,
+            splitFrom: rawInspection.splitFrom,
+            status: rawInspection.status,
+          }
+        : null;
+      const effectiveMetadata: SanitizedMetadata | null = effectiveInspection.ok
+        ? {
+            title: effectiveInspection.title,
+            artist: effectiveInspection.artist,
+            titleMissing: effectiveInspection.titleMissing,
+            splitFrom: effectiveInspection.splitFrom,
+            status: effectiveInspection.status,
           }
         : null;
 
-      if (!playing || !detectedMetadata) {
-        // Not-ready reading: keep the last good track, just advance the clock.
-        applySnapshot(positionMs, playing, durationMs, durationAuthoritative);
-        return;
-      }
-
-      const rawKey = trackKey(
-        detectedMetadata.title || detectedMetadata.artist,
-        detectedMetadata.artist
-      );
-      // The bridge republishes on every poll tick; only a new raw identity is a
-      // track change. A manual fix/revert updates the current song in place.
-      if (rawKey === lastDesktopRawKeyRef.current) {
-        applySnapshot(positionMs, playing, durationMs, durationAuthoritative);
-        return;
-      }
-      lastDesktopRawKeyRef.current = rawKey;
+      const rawKey = rawMetadata
+        ? trackKey(rawMetadata.title || rawMetadata.artist, rawMetadata.artist)
+        : trackKey(rawTitle ?? '', rawArtist ?? '');
 
       // A manual correction is authoritative and must be looked up against the
-      // *raw* identity, before the artist memory can rewrite the title.
+      // *raw* identity, before UIA or artist memory can rewrite the title.
       const override = getOverride(
-        detectedMetadata.title || detectedMetadata.artist,
-        detectedMetadata.artist
+        rawMetadata
+          ? rawMetadata.title || rawMetadata.artist
+          : rawTitle || rawArtist || '',
+        rawMetadata ? rawMetadata.artist : rawArtist ?? ''
       );
-      let metadata: SanitizedMetadata = override
-        ? {
-            ...detectedMetadata,
-            title: override.title,
-            artist: override.artist,
-            titleMissing: false,
-          }
-        : detectedMetadata;
 
-      // Artist-scoped memory only fills a missing title when the user has not
-      // already fixed this track.
-      if (!override && metadata.titleMissing && metadata.artist) {
-        const remembered = getArtistTitle(metadata.artist);
-        if (remembered) {
-          metadata = { ...metadata, title: remembered, titleMissing: false };
-          debugLog('metadata', 'artist-title-recalled', {
-            artist: metadata.artist,
-            title: remembered,
-          });
+      let metadata: SanitizedMetadata | null = null;
+      if (override) {
+        metadata = {
+          title: override.title,
+          artist: override.artist,
+          titleMissing: false,
+          splitFrom: rawMetadata?.splitFrom,
+          status: rawMetadata?.status ?? 'ok',
+        };
+      } else if (metadataSource === 'smtc+uia' && effectiveMetadata) {
+        // UIA outranks the artist memory but never a manual Fix.
+        metadata = effectiveMetadata;
+      } else if (rawMetadata) {
+        metadata = rawMetadata;
+        // Artist-scoped memory only fills a missing title when neither the
+        // manual Fix nor UIA has already resolved it.
+        if (metadata.titleMissing && metadata.artist) {
+          const remembered = getArtistTitle(metadata.artist);
+          if (remembered) {
+            metadata = { ...metadata, title: remembered, titleMissing: false };
+            debugLog('metadata', 'artist-title-recalled', {
+              artist: metadata.artist,
+              title: remembered,
+            });
+          }
         }
       }
 
+      if (!metadata) {
+        // A genuinely empty raw reading with no UIA result keeps the last track.
+        applySnapshot(positionMs, playing, durationMs, durationAuthoritative);
+        return;
+      }
+
       const effectiveKey = trackKey(metadata.title || metadata.artist, metadata.artist);
+      const rawChanged = rawKey !== lastDesktopRawKeyRef.current;
+      const effectiveChanged = effectiveKey !== lastDesktopEffectiveKeyRef.current;
+
+      if (!rawChanged && !effectiveChanged) {
+        applySnapshot(positionMs, playing, durationMs, durationAuthoritative);
+        return;
+      }
+
+      if (rawChanged) {
+        lastDesktopRawKeyRef.current = rawKey;
+        lastDesktopEffectiveKeyRef.current = effectiveKey;
+        setHasOverride(Boolean(override));
+        debugLog('detection', 'track-changed', {
+          rawKey,
+          key: effectiveKey,
+          title: metadata.title || '',
+          artist: metadata.artist,
+          album: nowPlaying.album,
+          durationMs,
+          hasOverride: Boolean(override),
+          metadataSource,
+          uiaAttempt,
+        });
+        const song = resolveDesktopSong(nowPlaying, metadata);
+        setCurrentSong(song);
+        lastProviderIndexRef.current = 0;
+        setFeedbackState('none');
+        // The previous track's verdict must not leak into the new one.
+        setLookupOutcome(undefined);
+        scorerRef.current.reset();
+        // Clear to the new song's empty state before fetching so the loading
+        // state is visible and no stale lyric can render.
+        setLyricsData(emptyLyricsData(song));
+        applySnapshot(positionMs, playing, durationMs, durationAuthoritative);
+        void loadLyrics(song, aiConfig);
+        return;
+      }
+
+      // Same raw reading, new effective metadata. Only UIA enrichment is
+      // allowed here; a manual Fix/Revert updates the current song in place
+      // and has already set the effective key.
+      lastDesktopEffectiveKeyRef.current = effectiveKey;
       setHasOverride(Boolean(override));
-      debugLog('detection', 'track-changed', {
+      debugLog('detection', 'uia-metadata-enriched', {
         rawKey,
         key: effectiveKey,
         title: metadata.title || '',
         artist: metadata.artist,
-        album: nowPlaying.album,
-        durationMs,
-        hasOverride: Boolean(override),
+        metadataSource,
+        uiaAttempt,
       });
-      const song = resolveDesktopSong(nowPlaying, metadata);
-      setCurrentSong(song);
-      lastProviderIndexRef.current = 0;
-      setFeedbackState('none');
-      // The previous track's verdict must not leak into the new one.
-      setLookupOutcome(undefined);
-      scorerRef.current.reset();
-      // Clear to the new song's empty state before fetching so the loading
-      // state is visible and no stale lyric can render.
-      setLyricsData(emptyLyricsData(song));
-      applySnapshot(positionMs, playing, durationMs, durationAuthoritative);
-      void loadLyrics(song, aiConfig);
+      if (metadataSource === 'smtc+uia' && !override) {
+        applyUiaEnrichment(metadata);
+      } else {
+        applySnapshot(positionMs, playing, durationMs, durationAuthoritative);
+      }
       return;
     };
   });

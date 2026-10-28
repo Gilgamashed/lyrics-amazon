@@ -104,6 +104,56 @@ export function recordPlay(song: Song, source: PlaySource, at: number = Date.now
   writeStore(store);
 }
 
+/**
+ * Moves an already-recorded play from one identity to another (spec 18, W3).
+ *
+ * A UIA artist/title recovery arrives for the same raw player session. If the
+ * play was already scored under `Unknown Artist`, this merges the timestamps
+ * into the recovered identity instead of double-counting or leaving a stale
+ * row. When the play has not been recorded yet this is a no-op; the pending
+ * scorer will record it with the recovered metadata later.
+ */
+export function mergePlayIdentity(
+  from: Pick<Song, 'title' | 'artist' | 'album' | 'albumArt'>,
+  to: Pick<Song, 'title' | 'artist' | 'album' | 'albumArt'>,
+  source: PlaySource
+): boolean {
+  const fromKey = songKey(from);
+  const toKey = songKey(to);
+  const store = readStore();
+  const previous = store[fromKey];
+  if (!previous) return false;
+
+  if (fromKey === toKey) {
+    previous.title = to.title;
+    previous.artist = to.artist;
+    previous.album = to.album;
+    previous.albumArt = to.albumArt || previous.albumArt;
+    previous.source = source;
+    writeStore(store);
+    return true;
+  }
+
+  delete store[fromKey];
+  const existing = store[toKey];
+  const plays = Array.from(new Set([...(existing?.plays ?? []), ...previous.plays])).sort(
+    (a, b) => a - b
+  );
+  store[toKey] = {
+    key: toKey,
+    title: to.title,
+    artist: to.artist,
+    album: to.album,
+    albumArt: to.albumArt || previous.albumArt || existing?.albumArt || '',
+    plays,
+    firstSeenAt: Math.min(previous.firstSeenAt, existing?.firstSeenAt ?? previous.firstSeenAt),
+    lastSeenAt: Math.max(previous.lastSeenAt, existing?.lastSeenAt ?? previous.lastSeenAt),
+    source,
+  };
+  writeStore(store);
+  return true;
+}
+
 function periodFilter(period: RankingPeriod, now: number): (at: number) => boolean {
   if (period === 'hot') {
     const cutoff = now - HOT_WINDOW_MS;
