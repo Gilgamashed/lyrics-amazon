@@ -11,7 +11,7 @@ A standalone, desktop-style companion that shows the lyrics of whatever **Amazon
 - **Most Listened:** a local, restart-durable usage view with **Hot (last 5 days) / Month / Lifetime** tabs; a play counts only after **≥ 30 seconds** of real playback **from Amazon Music** (non-Amazon sessions and legacy unflagged records are excluded).
 - **One Options menu:** all customization — lyrics layout preset, backdrop, appearance (opacity/blur/font/palette), default sync offset, **Karaoke AI endpoint/model/key**, and a Most Listened reset — lives in a single menu.
 
-> Status: Phase 8 (Hardening & Release) — **MVP complete**; post-MVP packaging (`specs/09_SPEC_POSTMVP-APP-PACK.md`), the lyrics/UX minor patch (`specs/10_SPEC_POSTMVP-MIN-PATCH.md`), the critical lyrics-pipeline fix (`specs/11_SPEC_POSTMVP-LYRICS-PIPELINE-FIX.md`), the post-MVP UX redesign (`specs/12_SPEC_POSTMVP-UX-REDESIGN.md`), the live-core patch (detection/metadata/playback/lyrics, `specs/13_SPEC_POSTMVP-LIVE-CORE-PATCH.md`), the lyrics-panel UX / provider-chain / AI-karaoke patch (`specs/14_SPEC_POSTMVP-LYRICS-UX-KARAOKE.md`), the release-hardening patch (single instance, test update channel, packaged-app E2E, `specs/15_SPEC_POSTMVP-RELEASE-HARDENING.md`), the fuzzy-lookup / local-first / window-geometry patch (`specs/16_SPEC_POSTMVP-FUZZY-LOOKUP-RELEASE.md`), and the diagnostics terminal / lookup recovery patch (`specs/17_SPEC_POSTMVP-DIAGNOSTICS-AND-LOOKUP-RECOVERY.md`) are implemented on `dev` at version **0.5.5-rc.2** (the incomplete `v0.5.5-rc.1` cut is superseded). See `specs/PROJECT_OVERVIEW.MD` for the roadmap and `specs/00_AI-SAFE.md` for the SpecDD scope rules.
+> Status: Phase 8 (Hardening & Release) — **MVP complete**; post-MVP packaging (`specs/09_SPEC_POSTMVP-APP-PACK.md`), the lyrics/UX minor patch (`specs/10_SPEC_POSTMVP-MIN-PATCH.md`), the critical lyrics-pipeline fix (`specs/11_SPEC_POSTMVP-LYRICS-PIPELINE-FIX.md`), the post-MVP UX redesign (`specs/12_SPEC_POSTMVP-UX-REDESIGN.md`), the live-core patch (detection/metadata/playback/lyrics, `specs/13_SPEC_POSTMVP-LIVE-CORE-PATCH.md`), the lyrics-panel UX / provider-chain / AI-karaoke patch (`specs/14_SPEC_POSTMVP-LYRICS-UX-KARAOKE.md`), the release-hardening patch (single instance, test update channel, packaged-app E2E, `specs/15_SPEC_POSTMVP-RELEASE-HARDENING.md`), the fuzzy-lookup / local-first / window-geometry patch (`specs/16_SPEC_POSTMVP-FUZZY-LOOKUP-RELEASE.md`), and the diagnostics terminal / lookup recovery patch (`specs/17_SPEC_POSTMVP-DIAGNOSTICS-AND-LOOKUP-RECOVERY.md`), and the Windows UIAutomation metadata fallback (`specs/18_SPEC_POSTMVP-UIAUTOMATION-METADATA-FALLBACK.md`) are implemented on `dev` at version **0.5.6-rc.1** (the incomplete `v0.5.5-rc.1` cut is superseded). See `specs/PROJECT_OVERVIEW.MD` for the roadmap and `specs/00_AI-SAFE.md` for the SpecDD scope rules.
 
 ## Prerequisites
 
@@ -76,7 +76,7 @@ This starts the Vite dev server, compiles the Rust core, opens the desktop windo
 | `npm run tauri:dev` | Run the Tauri desktop shell + native bridge in dev mode. |
 | `npm run tauri:build` | Build the Tauri desktop app. |
 | `npm run bridge:smoke` | Hit the running bridge over HTTP + WebSocket. |
-| `npm run test` | Run the Vitest unit/component suites (493 tests). |
+| `npm run test` | Run the Vitest unit/component suites (503 tests). |
 | `npm run test:coverage` | Run Vitest with the v8 coverage provider. |
 | `npm run coverage:report` | Combined FE + Rust coverage aggregation (gates: ≥ 85% lines overall, **100%** on the critical utilities). |
 | `npm run test:e2e` | Build UI + bridge, run the Playwright E2E suite (13 tests). |
@@ -137,6 +137,21 @@ The app ships an **in-app diagnostic console** for development and release-candi
 - **Bounded and private:** a **2000-event in-memory ring buffer** (nothing is persisted to disk or sent anywhere). The overlay filters by level, scope and free text, supports auto-follow and Clear, and expands a row to its full JSON payload.
 - **Copy report:** exports the app version, platform information and the retained events as JSON for a bug report.
 - **Build gate:** enabled in development and `-rc`/`-beta`/`-alpha` builds, and forceable with `VITE_DEBUG_TERMINAL=1|0`. The terminal is implemented in `src/services/debugConsole.ts` and `src/components/DebugTerminal.tsx`.
+
+## Windows UIA Metadata Fallback
+
+On Windows, the native bridge can recover metadata from the Amazon Music accessibility tree when SMTC is wrong or incomplete. This is a **fallback only**; SMTC remains authoritative for playback position, duration, play/pause state, app id and album art.
+
+- **Triggers:** missing or placeholder title, `title == artist`, `title == album`, and an **empty/unknown artist even when the title is healthy**. A healthy title/artist pair is never scanned.
+- **Artist-only recovery:** when the title is healthy but the artist is unknown, UIA may fill the artist only if the UIA candidate title matches the SMTC title after release-noise normalization. Otherwise the artist stays unknown, so Most Played is not misattributed.
+- **Non-blocking:** a long-lived UIA worker scans on demand with a ~2-second budget, bounded retries/backoff and a small per-reading cache. The SMTC poller publishes immediately; a correction is merged on a later tick for the same raw reading.
+- **Precedence:** manual Fix override → UIA recovery → artist-scoped title memory → raw SMTC.
+- **Diagnostics:** merged readings carry `metadataSource: "smtc+uia"`, the original `sourceTitle`/`sourceArtist`, and a bounded `uiaAttempt` (`found`, `timeout`, `sparse-tree`, `no-anchor`, `disabled`). These appear in the Debug Terminal under the `uia` scope.
+- **Most Played:** a UIA recovery for the same raw reading is treated as metadata enrichment, not a new play session. An already-recorded `Unknown Artist` play is migrated to the recovered artist.
+- **Configuration:** enabled by default; set **`LYRICS_AMAZON_UIA=0`** to disable it. `LYRICS_AMAZON_UIA_RETRIES` (default 4) and `LYRICS_AMAZON_UIA_TIMEOUT_MS` (default 2000) tune the worker.
+- **No persistence:** UIA reads are in-memory only and are not written to disk.
+
+The implementation lives in `src-tauri/src/bridge/uia.rs` and is wired into `src-tauri/src/bridge/source/windows.rs`.
 
 ## Most Listened
 
@@ -233,7 +248,7 @@ npm run tauri:build
 
 ### Branching & Staging
 
-- **`dev`** — integration branch; every change lands here first and is validated by CI. Currently carries version **0.5.5-rc.2**.
+- **`dev`** — integration branch; every change lands here first and is validated by CI. Currently carries version **0.5.6-rc.1**.
 - **`staging`** — long-lived release-candidate branch where the in-progress version is staged (cut from `dev`, advanced by merging `dev` → `staging`). CI runs on its pushes too.
 - **`vX.Y.Z` tags** — cut from `staging` for a stable release; the tag workflow publishes a normal GitHub Release and the in-app updater offers it.
 - **`vX.Y.Z-rc.N` tags** — testing pre-releases. Any tag containing `-` publishes as a GitHub **pre-release** (e.g. `v0.5.3-rc.1`) and stays excluded from `releases/latest`; **rc builds instead auto-update through the rolling `test-latest` channel** (see below), so testers on the rc line receive each new rc automatically while stable installs are never offered one.
@@ -252,7 +267,7 @@ npm run tauri:build
 
 A workflow (`.github/workflows/ci.yml`) runs on every push to `dev` and `staging` and on pull requests:
 
-- **`quality-gates`** (Windows runner): `tsc --noEmit` lint, production build, the Vitest suite (493 tests), the combined ≥ 85% coverage gate, `cargo fmt --check`, `cargo clippy --all-targets`, 54 Rust tests, and the 14-test Playwright E2E suite (system Chrome is preinstalled on the runner — no bundled Chromium download).
+- **`quality-gates`** (Windows runner): `tsc --noEmit` lint, production build, the Vitest suite (503 tests), the combined ≥ 85% coverage gate, `cargo fmt --check`, `cargo clippy --all-targets`, 69 Rust tests, and the 14-test Playwright E2E suite (system Chrome is preinstalled on the runner — no bundled Chromium download).
 - **`platform-matrix`** (macOS + Ubuntu runners): `npm ci`, lint, build, and `cargo test` — the multi-platform validation cover (Ubuntu installs the Tauri system dependencies first).
 - The workflow is intentionally **secrets-free** (public runners, no signing) and caches the npm and Cargo build caches between runs.
 
@@ -262,12 +277,12 @@ A second workflow (`.github/workflows/release.yml`) runs when a `v*` tag is push
 
 Implemented in Phase 7 (`specs/07_SPEC_TESTING.md`), with the packaged-app gate added by `specs/15_SPEC_POSTMVP-RELEASE-HARDENING.md`. Four layers:
 
-- **Frontend (Vitest + jsdom + Testing Library):** `npm run test` runs **493 tests across 38 files** (provider-chain, service, component/state, and `App` suites). Covers LRC parsing, the lyric/AI/cache/bridge services, the ordered provider chain + per-provider extraction, the not-found/transient/gate-rejected states, the diagnostics ring buffer/terminal, query variants and the tiered identity gate, retry/backoff and outcome classification, metadata admission (missing/placeholder/duplicate titles), the artist-scoped title memory, the playback state machine, the settings/play-history stores (incl. the ≥30s scoring rule), the redesigned panels (now-playing header, lyrics panel, Info panel, Most Listened, Options), network resiliency (timeouts, non-OK, malformed payloads), and UI contracts.
+- **Frontend (Vitest + jsdom + Testing Library):** `npm run test` runs **503 tests across 38 files** (provider-chain, service, component/state, and `App` suites). Covers LRC parsing, the lyric/AI/cache/bridge services, the ordered provider chain + per-provider extraction, the not-found/transient/gate-rejected states, the diagnostics ring buffer/terminal, query variants and the tiered identity gate, retry/backoff and outcome classification, metadata admission (missing/placeholder/duplicate titles), the artist-scoped title memory, the playback state machine, the settings/play-history stores (incl. the ≥30s scoring rule), the redesigned panels (now-playing header, lyrics panel, Info panel, Most Listened, Options), network resiliency (timeouts, non-OK, malformed payloads), and UI contracts.
 - **Rust core (`cargo test`):** 54 tests in `src-tauri/src` — `NowPlaying` serde, metadata parsers (macOS `nowplaying-cli` / Linux `playerctl` fixtures run on Windows), the Amazon Music session-preference helpers, sanitizers, the poller, the single-instance/bridge bind-failure seam (`run_with`), the off-screen window geometry guard, and axum `/health`, `/now-playing`, `/ws`, `/fetch` integration incl. localhost-only CORS.
 - **E2E (Playwright):** `npm run test:e2e` builds the UI and the real bridge binary, spawns the bridge with a test-only mock now-playing source, and drives **system Chrome** (`channel: 'chrome'`; the bundled Chromium download is unreliable in this environment) through its **14** connected and degraded paths — boot and detect the scripted Espresso track from the bridge, switch to the Most Listened view, track change via the bridge, unknown-track mapping in the header, real album art + app id, small-viewport chrome, the **Debug Terminal** (Ctrl+Shift+D and the Options entry, with the recorded detection), the HTTP/WebSocket contract, the `/fetch` CORS-egress proxy, and fall-back to Browser (Media Session) when the bridge is killed. With single-instance active (spec 15), the harness fails fast: `global-setup` and the egress tests detect an early bridge exit instead of hanging.
 - **Packaged-app E2E (release gate):** `npm run test:e2e:packaged` (needs `cargo install tauri-driver` and a built `src-tauri/target/release/*-bridge.exe`; `msedgedriver` is auto-downloaded to `test-results/msedgedriver/`) launches the **release binary** through `tauri-driver` + WebView2 WebDriver and asserts 5 checks: `v<package.json>` version annotation, `/health` on 48765, the **Desktop (native)** badge + mock track title, second-launch single-instance exit (first instance stays healthy), and a quiet startup update check. It runs locally before every tag cut and in `release.yml` **between build and publish** (on the pinned `windows-2022` runner — see the CI section).
 
-**Coverage policy:** combined line coverage across frontend and Rust must be ≥ **85%** (hard gate), and the **critical utilities must be at 100%** (the critical set is defined and enforced in `scripts/coverage-report.ts`). Aggregation runs fresh Vitest coverage plus `cargo llvm-cov --json` in `scripts/coverage-report.ts`; it exits non-zero on either gate. Exclusions (spec-approved, enforced): `src/main.tsx`, `*.test.ts(x)`, `src/test/**`, `src-tauri/src/main.rs`, `src-tauri/build.rs`, `src-tauri/gen/**`. Latest result: **93.22%** combined (FE 95.91%, Rust 87.03%), all **24** critical files 100%.
+**Coverage policy:** combined line coverage across frontend and Rust must be ≥ **85%** (hard gate), and the **critical utilities must be at 100%** (the critical set is defined and enforced in `scripts/coverage-report.ts`). Aggregation runs fresh Vitest coverage plus `cargo llvm-cov --json` in `scripts/coverage-report.ts`; it exits non-zero on either gate. Exclusions (spec-approved, enforced): `src/main.tsx`, `*.test.ts(x)`, `src/test/**`, `src-tauri/src/main.rs`, `src-tauri/build.rs`, `src-tauri/gen/**`. Latest result: **91.39%** combined (FE 95.89%, Rust 84.58%), all **24** critical files 100%.
 
 **E2E bridge mock:** `BRIDGE_MOCK_SCRIPT=<json>` loads a scripted now-playing source used only by tests — an array of `{ "holdMs": number, "nowPlaying": NowPlaying }` steps, evaluated against cumulative elapsed time and looped (`e2e/fixtures/bridge-mock-script.json`). Unset, the bridge uses real OS detection with no behavior change.
 
