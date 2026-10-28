@@ -1,0 +1,133 @@
+{
+  "fixture": "player-paused",
+  "capturedAtUnixMs": 1793196513619,
+  "window": {
+    "pid": 15512,
+    "title": "Amazon Music",
+    "processName": "Amazon Music.exe",
+    "visible": true
+  },
+  "mode": "find-all",
+  "sourceCapture": "raw live capture",
+  "notes": "Live FindAll capture after pausing the same track. The clock is static at 01:14; the reader must not require a progressing clock when playback is paused.",
+  "elementCount": 6,
+  "truncated": false,
+  "propertyErrors": 0,
+  "nodes": [
+    {
+      "id": 0,
+      "parent": null,
+      "depth": 0,
+      "localizedControlType": "informações sobre o conteúdo",
+      "frameworkId": "Chrome",
+      "controlType": 50026,
+      "automationId": "transportContainer",
+      "bounds": {
+        "left": 8,
+        "top": 712,
+        "right": 1264,
+        "bottom": 792
+      },
+      "isContentElement": true,
+      "isControlElement": true,
+      "isOffscreen": false,
+      "hasKeyboardFocus": false,
+      "isEnabled": true
+    },
+    {
+      "id": 1,
+      "parent": null,
+      "depth": 0,
+      "name": "01:14",
+      "localizedControlType": "text",
+      "controlType": 50020,
+      "bounds": {
+        "left": 24,
+        "top": 688,
+        "right": 56,
+        "bottom": 703
+      },
+      "isContentElement": true,
+      "isControlElement": true,
+      "isOffscreen": false,
+      "hasKeyboardFocus": false,
+      "isEnabled": true
+    },
+    {
+      "id": 2,
+      "parent": null,
+      "depth": 0,
+      "name": "Killing In the Name [Explicit]",
+      "localizedControlType": "link",
+      "controlType": 50005,
+      "bounds": {
+        "left": 88,
+        "top": 720,
+        "right": 269,
+        "bottom": 741
+      },
+      "isContentElement": true,
+      "isControlElement": true,
+      "isOffscreen": false,
+      "hasKeyboardFocus": false,
+      "isEnabled": true
+    },
+    {
+      "id": 3,
+      "parent": null,
+      "depth": 0,
+      "name": "Rage Against The Machine",
+      "localizedControlType": "link",
+      "controlType": 50005,
+      "bounds": {
+        "left": 88,
+        "top": 742,
+        "right": 243,
+        "bottom": 759
+      },
+      "isContentElement": true,
+      "isControlElement": true,
+      "isOffscreen": false,
+      "hasKeyboardFocus": false,
+      "isEnabled": true
+    },
+    {
+      "id": 4,
+      "parent": null,
+      "depth": 0,
+      "name": "LETRAS",
+      "localizedControlType": "text",
+      "controlType": 50020,
+      "bounds": {
+        "left": 93,
+        "top": 766,
+        "right": 135,
+        "bottom": 782
+      },
+      "isContentElement": true,
+      "isControlElement": true,
+      "isOffscreen": false,
+      "hasKeyboardFocus": false,
+      "isEnabled": true
+    },
+    {
+      "id": 5,
+      "parent": null,
+      "depth": 0,
+      "name": "ULTRA HD",
+      "localizedControlType": "text",
+      "controlType": 50020,
+      "bounds": {
+        "left": 149,
+        "top": 766,
+        "right": 206,
+        "bottom": 782
+      },
+      "isContentElement": true,
+      "isControlElement": true,
+      "isOffscreen": false,
+      "hasKeyboardFocus": false,
+      "isEnabled": true
+    }
+  ]
+}

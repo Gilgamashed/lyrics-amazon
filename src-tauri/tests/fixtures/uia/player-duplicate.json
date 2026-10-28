@@ -1,0 +1,248 @@
+{
+  "fixture": "player-duplicate",
+  "capturedAtUnixMs": 1793196505121,
+  "window": {
+    "pid": 15512,
+    "title": "Amazon Music",
+    "processName": "Amazon Music.exe",
+    "visible": true
+  },
+  "mode": "find-all",
+  "sourceCapture": "raw live capture",
+  "notes": "Synthetic duplicate-player fixture. Two player bars share the captured structure; the first (upper) bar has a stale 00:20 clock and a different track, the second has the live 01:14 clock. A reader must select the bar consistent with the SMTC position.",
+  "elementCount": 12,
+  "truncated": false,
+  "propertyErrors": 0,
+  "nodes": [
+    {
+      "id": 0,
+      "parent": null,
+      "depth": 0,
+      "localizedControlType": "informações sobre o conteúdo",
+      "frameworkId": "Chrome",
+      "controlType": 50026,
+      "automationId": "transportContainer",
+      "bounds": {
+        "left": 8,
+        "top": 412,
+        "right": 1264,
+        "bottom": 492
+      },
+      "isContentElement": true,
+      "isControlElement": true,
+      "isOffscreen": false,
+      "hasKeyboardFocus": false,
+      "isEnabled": true
+    },
+    {
+      "id": 1,
+      "parent": null,
+      "depth": 0,
+      "name": "00:20",
+      "localizedControlType": "text",
+      "controlType": 50020,
+      "bounds": {
+        "left": 24,
+        "top": 388,
+        "right": 56,
+        "bottom": 403
+      },
+      "isContentElement": true,
+      "isControlElement": true,
+      "isOffscreen": false,
+      "hasKeyboardFocus": false,
+      "isEnabled": true
+    },
+    {
+      "id": 2,
+      "parent": null,
+      "depth": 0,
+      "name": "Pós (Ao Vivo)",
+      "localizedControlType": "link",
+      "controlType": 50005,
+      "bounds": {
+        "left": 88,
+        "top": 420,
+        "right": 269,
+        "bottom": 441
+      },
+      "isContentElement": true,
+      "isControlElement": true,
+      "isOffscreen": false,
+      "hasKeyboardFocus": false,
+      "isEnabled": true
+    },
+    {
+      "id": 3,
+      "parent": null,
+      "depth": 0,
+      "name": "Felipe e Rodrigo",
+      "localizedControlType": "link",
+      "controlType": 50005,
+      "bounds": {
+        "left": 88,
+        "top": 442,
+        "right": 243,
+        "bottom": 459
+      },
+      "isContentElement": true,
+      "isControlElement": true,
+      "isOffscreen": false,
+      "hasKeyboardFocus": false,
+      "isEnabled": true
+    },
+    {
+      "id": 4,
+      "parent": null,
+      "depth": 0,
+      "name": "LETRAS",
+      "localizedControlType": "text",
+      "controlType": 50020,
+      "bounds": {
+        "left": 93,
+        "top": 466,
+        "right": 135,
+        "bottom": 482
+      },
+      "isContentElement": true,
+      "isControlElement": true,
+      "isOffscreen": false,
+      "hasKeyboardFocus": false,
+      "isEnabled": true
+    },
+    {
+      "id": 5,
+      "parent": null,
+      "depth": 0,
+      "name": "ULTRA HD",
+      "localizedControlType": "text",
+      "controlType": 50020,
+      "bounds": {
+        "left": 149,
+        "top": 466,
+        "right": 206,
+        "bottom": 482
+      },
+      "isContentElement": true,
+      "isControlElement": true,
+      "isOffscreen": false,
+      "hasKeyboardFocus": false,
+      "isEnabled": true
+    },
+    {
+      "id": 6,
+      "parent": null,
+      "depth": 0,
+      "localizedControlType": "informações sobre o conteúdo",
+      "frameworkId": "Chrome",
+      "controlType": 50026,
+      "automationId": "transportContainer",
+      "bounds": {
+        "left": 8,
+        "top": 712,
+        "right": 1264,
+        "bottom": 792
+      },
+      "isContentElement": true,
+      "isControlElement": true,
+      "isOffscreen": false,
+      "hasKeyboardFocus": false,
+      "isEnabled": true
+    },
+    {
+      "id": 7,
+      "parent": null,
+      "depth": 0,
+      "name": "01:14",
+      "localizedControlType": "text",
+      "controlType": 50020,
+      "bounds": {
+        "left": 24,
+        "top": 688,
+        "right": 56,
+        "bottom": 703
+      },
+      "isContentElement": true,
+      "isControlElement": true,
+      "isOffscreen": false,
+      "hasKeyboardFocus": false,
+      "isEnabled": true
+    },
+    {
+      "id": 8,
+      "parent": null,
+      "depth": 0,
+      "name": "Killing In the Name [Explicit]",
+      "localizedControlType": "link",
+      "controlType": 50005,
+      "bounds": {
+        "left": 88,
+        "top": 720,
+        "right": 269,
+        "bottom": 741
+      },
+      "isContentElement": true,
+      "isControlElement": true,
+      "isOffscreen": false,
+      "hasKeyboardFocus": false,
+      "isEnabled": true
+    },
+    {
+      "id": 9,
+      "parent": null,
+      "depth": 0,
+      "name": "Rage Against The Machine",
+      "localizedControlType": "link",
+      "controlType": 50005,
+      "bounds": {
+        "left": 88,
+        "top": 742,
+        "right": 243,
+        "bottom": 759
+      },
+      "isContentElement": true,
+      "isControlElement": true,
+      "isOffscreen": false,
+      "hasKeyboardFocus": false,
+      "isEnabled": true
+    },
+    {
+      "id": 10,
+      "parent": null,
+      "depth": 0,
+      "name": "LETRAS",
+      "localizedControlType": "text",
+      "controlType": 50020,
+      "bounds": {
+        "left": 93,
+        "top": 766,
+        "right": 135,
+        "bottom": 782
+      },
+      "isContentElement": true,
+      "isControlElement": true,
+      "isOffscreen": false,
+      "hasKeyboardFocus": false,
+      "isEnabled": true
+    },
+    {
+      "id": 11,
+      "parent": null,
+      "depth": 0,
+      "name": "ULTRA HD",
+      "localizedControlType": "text",
+      "controlType": 50020,
+      "bounds": {
+        "left": 149,
+        "top": 766,
+        "right": 206,
+        "bottom": 782
+      },
+      "isContentElement": true,
+      "isControlElement": true,
+      "isOffscreen": false,
+      "hasKeyboardFocus": false,
+      "isEnabled": true
+    }
+  ]
+}

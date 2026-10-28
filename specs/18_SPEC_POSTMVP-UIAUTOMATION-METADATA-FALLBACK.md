@@ -35,7 +35,19 @@ A second goal is **accurate Most Played attribution**: an empty or unknown artis
 - **Empty/unknown artist with a healthy title** — lyrics lookup can be title-only, but Most Played should still record the correct artist.
 - **Transient or duplicate UIA trees** — the reader must degrade gracefully rather than guess.
 
-### 2.3 Current code map (corrected for this spec)
+### 2.3 W0 live findings (2026-10-28)
+
+- `RawViewWalker` exposed only 12–43 elements on the live Amazon Music window, even while a track was playing.
+- `FindAll(TreeScope_Descendants, TrueCondition)` exposed 365–578 elements and the real player-bar title/artist.
+- The title and artist are link elements inside the `transportContainer` region; the elapsed-time text is a separate node above it.
+- Page content can overlap the player region (e.g. a `REDISCOVER …` link with the same top coordinate as the artist), so candidate scoring must be container-aware.
+- Repeated captures are transient: `RawViewWalker` varied between 25 and 43 nodes and `FindAll` between 365 and 578; the title node was missing from several sparse captures.
+- Paused playback has a static clock and must not require a progressing clock.
+- Minimized windows can still expose player data through `FindAll`, but with off-screen bounds and unreliable clocks.
+
+Consequence: W1 must use **`FindAll(TrueCondition)` as the primary discovery mechanism**, with the raw walk as an optional context/ancestry aid. `ControlType` conditions must not be the only discovery path.
+
+### 2.4 Current code map (corrected for this spec)
 
 - The Windows adapter is **`src-tauri/src/bridge/source/windows.rs`** (not `src-tauri/src/bridge/windows.rs`).
 - The real SMTC flow is `WindowsSmtcSource::current()` → `query_smtc()` → `read_session()`; there is no `get_now_playing()` function.
@@ -103,7 +115,7 @@ Do not create a new thread per poll tick and do not make the poller wait for a U
 The time anchor is a hint, not proof of a player bar. Do not depend on a single fixed parent/sibling walk or on "larger text".
 
 1. Find the Amazon Music window associated with the current SMTC session/process, not merely the foreground window.
-2. Traverse with `RawViewWalker` using a node and time budget; do not rely solely on `ControlType` conditions.
+2. Discover candidates with bounded `FindAll(TreeScope_Descendants, TrueCondition)`; use `RawViewWalker` only as an optional ancestry/context aid. Do not rely on `ControlType` conditions.
 3. Use elapsed-time text matching `^-?\d{1,2}:\d{2}$` as one candidate anchor.
 4. Score nearby title/artist candidates by structural context, proximity, non-placeholder text and consistency across reads. Do not depend on font size.
 5. For duplicate player bars, prefer the candidate whose clock is close to the SMTC position; use progression only while playing.
@@ -126,8 +138,9 @@ The time anchor is a hint, not proof of a player bar. Do not depend on a single 
 
 | Task | Responsibility |
 | :--- | :--- |
-| Capture sanitized UIA trees from the real Amazon Music app for a healthy track, missing title, `title == artist`, album-in-title, unknown artist with a healthy title, paused playback, duplicate player bars, sparse tree, minimized window, and decorated/non-Latin titles. | Delivery |
-| Turn the captures into sanitized fixtures before choosing candidate-scoring rules. | Delivery |
+| Add the read-only `src-tauri/examples/uia_probe.rs` and capture the live UIA tree for the playing, paused, minimized and sparse window states. | Delivery |
+| Record the traversal finding: `RawViewWalker` under-reports; `FindAll(TrueCondition)` is the primary discovery path. | Quality |
+| Turn the captures into sanitized player-region fixtures under `src-tauri/tests/fixtures/uia/`; compose the SMTC-side trigger variants (missing title, `title == artist`, album-in-title, unknown artist) on the captured tree. | Delivery |
 | Do not change production behavior during this phase. | Quality |
 
 ### W1 — UIAutomation Infrastructure (Rust Bridge)
@@ -135,7 +148,7 @@ The time anchor is a hint, not proof of a player bar. Do not depend on a single 
 | Task | Responsibility |
 | :--- | :--- |
 | Add `src-tauri/src/bridge/uia.rs` (or `source/uia.rs` beside the adapter), cfg-gated for Windows, with UIA COM interop. | Delivery |
-| Implement bounded `RawViewWalker` traversal, elapsed-time anchors, candidate scoring, and duplicate-player selection. | Delivery |
+| Implement bounded `FindAll(TrueCondition)` discovery (with optional `RawViewWalker` ancestry), elapsed-time anchors, candidate scoring, and duplicate-player selection. | Delivery |
 | Add the long-lived worker, debounce, TTL cache, bounded retries/backoff, timeout and feature flag. | Delivery |
 | Keep all COM objects on the UIA worker thread; never share them with the poller. | Delivery |
 | Add window/process discovery for the current SMTC session (using `Win32_UI_WindowsAndMessaging` / `Win32_System_Threading` as required). | Delivery |
@@ -187,7 +200,7 @@ The time anchor is a hint, not proof of a player bar. Do not depend on a single 
 
 ## 5. Definition of Done
 
-- **W0:** Live UIA tree captures and sanitized fixtures exist for all trigger and window-state cases.
+- **W0:** The read-only probe and sanitized fixtures exist for the live player/window states; the `RawViewWalker`/`FindAll` finding is recorded, and the SMTC-side trigger variants are documented and composable with the captured tree.
 - **W1:** The UIA worker performs bounded, non-blocking scans with retries, timeout, candidate scoring and duplicate-player handling; COM objects never cross threads.
 - **W2:** UIA runs only for suspicious SMTC metadata, including empty/unknown artist; artist-only recovery preserves the healthy title and requires a matching UIA candidate title.
 - **W3:** `metadataSource` and the raw SMTC identity fields reach the frontend; UIA attempts are visible in the Debug Terminal; manual Fix overrides win; Most Played attribution is corrected without duplicate sessions.

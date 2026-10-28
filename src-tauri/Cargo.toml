@@ -34,7 +34,7 @@ futures-util = "0.3.34"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "brotli", "deflate"] }
 
 [target."cfg(windows)".dependencies]
-windows = { version = "0.62.2", features = ["Foundation", "Media_Control", "Storage_Streams", "Win32_Media_Audio", "Win32_System_Com", "Win32_Foundation", "Win32_UI_Accessibility"] }
+windows = { version = "0.62.2", features = ["Foundation", "Media_Control", "Storage_Streams", "Win32_Media_Audio", "Win32_System_Com", "Win32_Foundation", "Win32_UI_Accessibility", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading"] }
 windows-collections = "0.3.2"
 
 [dev-dependencies]

@@ -1,0 +1,119 @@
+{
+  "fixture": "player-sparse",
+  "capturedAtUnixMs": 1793196531210,
+  "window": {
+    "pid": 15512,
+    "title": "Amazon Music",
+    "processName": "Amazon Music.exe",
+    "visible": true
+  },
+  "mode": "find-all",
+  "sourceCapture": "raw live capture",
+  "notes": "Live minimized-window FindAll capture projected onto the window/document/appchrome/transport-container nodes. The transport container is present but there is no elapsed-time anchor, title or artist. The reader must report a sparse tree and leave SMTC unchanged.",
+  "elementCount": 5,
+  "truncated": false,
+  "propertyErrors": 0,
+  "nodes": [
+    {
+      "id": 0,
+      "parent": null,
+      "depth": 0,
+      "localizedControlType": "painel",
+      "frameworkId": "Win32",
+      "controlType": 50033,
+      "className": "CefBrowserWindow",
+      "bounds": {
+        "left": -32000,
+        "top": -32000,
+        "right": -30736,
+        "bottom": -31239
+      },
+      "isContentElement": true,
+      "isControlElement": true,
+      "isOffscreen": false,
+      "hasKeyboardFocus": false,
+      "isEnabled": true
+    },
+    {
+      "id": 1,
+      "parent": null,
+      "depth": 0,
+      "localizedControlType": "painel",
+      "frameworkId": "Win32",
+      "controlType": 50033,
+      "className": "Chrome_WidgetWin_0",
+      "bounds": {
+        "left": -32000,
+        "top": -32000,
+        "right": -30736,
+        "bottom": -31239
+      },
+      "isContentElement": true,
+      "isControlElement": true,
+      "isOffscreen": false,
+      "hasKeyboardFocus": false,
+      "isEnabled": true
+    },
+    {
+      "id": 2,
+      "parent": null,
+      "depth": 0,
+      "name": "Amazon Music Desktop",
+      "localizedControlType": "documento",
+      "controlType": 50030,
+      "automationId": "139254952",
+      "className": "Chrome_RenderWidgetHostHWND",
+      "bounds": {
+        "left": -32000,
+        "top": -32000,
+        "right": -30736,
+        "bottom": -31239
+      },
+      "isContentElement": true,
+      "isControlElement": true,
+      "isOffscreen": false,
+      "hasKeyboardFocus": false,
+      "isEnabled": true
+    },
+    {
+      "id": 3,
+      "parent": null,
+      "depth": 0,
+      "localizedControlType": "navegação",
+      "frameworkId": "Chrome",
+      "controlType": 50026,
+      "automationId": "appchrome",
+      "bounds": {
+        "left": -32000,
+        "top": -32000,
+        "right": -30744,
+        "bottom": -31928
+      },
+      "isContentElement": true,
+      "isControlElement": true,
+      "isOffscreen": false,
+      "hasKeyboardFocus": false,
+      "isEnabled": true
+    },
+    {
+      "id": 4,
+      "parent": null,
+      "depth": 0,
+      "localizedControlType": "informações sobre o conteúdo",
+      "frameworkId": "Chrome",
+      "controlType": 50026,
+      "automationId": "transportContainer",
+      "bounds": {
+        "left": -32000,
+        "top": -31319,
+        "right": -30744,
+        "bottom": -31239
+      },
+      "isContentElement": true,
+      "isControlElement": true,
+      "isOffscreen": false,
+      "hasKeyboardFocus": false,
+      "isEnabled": true
+    }
+  ]
+}
