@@ -53,6 +53,10 @@ pub fn parse_nowplaying_cli_json(source: &str, input: &[u8]) -> Option<NowPlayin
         app_id: None,
         is_amazon: false,
         album_art: None,
+        metadata_source: None,
+        source_title: None,
+        source_artist: None,
+        uia_attempt: None,
     })
 }
 
@@ -82,6 +86,10 @@ pub fn parse_playerctl_metadata(source: &str, text: &str) -> Option<NowPlaying> 
         app_id: None,
         is_amazon: false,
         album_art: None,
+        metadata_source: None,
+        source_title: None,
+        source_artist: None,
+        uia_attempt: None,
     })
 }
 

@@ -16,6 +16,19 @@ pub struct NowPlaying {
     pub is_amazon: bool,
     #[serde(default)]
     pub album_art: Option<String>,
+    /// `smtc` or `smtc+uia` when the UIA fallback contributed metadata.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata_source: Option<String>,
+    /// Original SMTC title/artist before a UIA merge; used by the frontend for
+    /// override keys and history correlation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_artist: Option<String>,
+    /// Last bounded UIA attempt outcome (`found`, `timeout`, `sparse-tree`,
+    /// `no-anchor`, `disabled`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub uia_attempt: Option<String>,
 }
 
 impl NowPlaying {
@@ -31,6 +44,10 @@ impl NowPlaying {
             app_id: None,
             is_amazon: false,
             album_art: None,
+            metadata_source: None,
+            source_title: None,
+            source_artist: None,
+            uia_attempt: None,
         }
     }
 }
@@ -52,6 +69,10 @@ mod tests {
             app_id: Some("AmazonMusic.exe".to_string()),
             is_amazon: true,
             album_art: Some("data:image/jpeg;base64,AAAA".to_string()),
+            metadata_source: None,
+            source_title: None,
+            source_artist: None,
+            uia_attempt: None,
         };
 
         let json = serde_json::to_value(&np).unwrap();
@@ -88,6 +109,42 @@ mod tests {
         assert_eq!(np.app_id.as_deref(), Some("AmazonMusic.exe"));
         assert!(np.is_amazon);
         assert_eq!(np.album_art.as_deref(), Some("data:image/png;base64,BBBB"));
+    }
+
+    #[test]
+    fn serializes_uia_recovery_fields_when_present() {
+        let np = NowPlaying {
+            source: "windows-smtc".to_string(),
+            title: Some("The Red".to_string()),
+            artist: Some("Chevelle".to_string()),
+            album: Some("Wonder What's Next".to_string()),
+            duration_ms: Some(222_000),
+            position_ms: Some(30_000),
+            is_playing: true,
+            app_id: Some("AmazonMusic.exe".to_string()),
+            is_amazon: true,
+            album_art: None,
+            metadata_source: Some("smtc+uia".to_string()),
+            source_title: Some(String::new()),
+            source_artist: Some("Chevelle".to_string()),
+            uia_attempt: Some("found".to_string()),
+        };
+
+        let json = serde_json::to_value(&np).unwrap();
+        assert_eq!(json["metadataSource"], "smtc+uia");
+        assert_eq!(json["sourceTitle"], "");
+        assert_eq!(json["sourceArtist"], "Chevelle");
+        assert_eq!(json["uiaAttempt"], "found");
+    }
+
+    #[test]
+    fn deserializes_uia_recovery_fields() {
+        let json = r#"{"source":"s","title":"The Red","artist":"Chevelle","album":null,"durationMs":null,"positionMs":null,"isPlaying":true,"metadataSource":"smtc+uia","sourceTitle":"","sourceArtist":"Chevelle","uiaAttempt":"found"}"#;
+        let np: NowPlaying = serde_json::from_str(json).unwrap();
+        assert_eq!(np.metadata_source.as_deref(), Some("smtc+uia"));
+        assert_eq!(np.source_title.as_deref(), Some(""));
+        assert_eq!(np.source_artist.as_deref(), Some("Chevelle"));
+        assert_eq!(np.uia_attempt.as_deref(), Some("found"));
     }
 
     #[test]

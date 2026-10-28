@@ -159,6 +159,10 @@ mod tests {
             app_id: None,
             is_amazon: false,
             album_art: None,
+            metadata_source: None,
+            source_title: None,
+            source_artist: None,
+            uia_attempt: None,
         }
     }
 

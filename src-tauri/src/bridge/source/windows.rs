@@ -14,6 +14,7 @@ use base64::Engine;
 
 use crate::bridge::now_playing::NowPlaying;
 use crate::bridge::source::{NowPlayingSource, SOURCE_ID};
+use crate::bridge::uia::UiaRuntime;
 
 /// Upper bound on the album-art payload embedded as a `data:` URL. SMTC
 /// thumbnails are already compressed image streams; oversized art is dropped
@@ -22,20 +23,24 @@ const MAX_ALBUM_ART_BYTES: usize = 256 * 1024;
 
 static COM_INIT: Once = Once::new();
 
-pub struct WindowsSmtcSource;
+pub struct WindowsSmtcSource {
+    uia: UiaRuntime,
+}
 
 impl WindowsSmtcSource {
     pub fn new() -> Self {
         COM_INIT.call_once(|| unsafe {
             let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
         });
-        Self
+        Self {
+            uia: UiaRuntime::from_env(),
+        }
     }
 }
 
 impl NowPlayingSource for WindowsSmtcSource {
     fn current(&self) -> Option<NowPlaying> {
-        query_smtc().ok().flatten()
+        query_smtc().ok().flatten().map(|now| self.uia.enrich(now))
     }
 }
 
@@ -91,6 +96,10 @@ fn read_session(
         app_id: (!app_id.trim().is_empty()).then(|| app_id.to_string()),
         is_amazon: is_amazon_app(app_id),
         album_art: read_thumbnail(&media),
+        metadata_source: None,
+        source_title: None,
+        source_artist: None,
+        uia_attempt: None,
     }))
 }
 

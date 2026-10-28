@@ -1,6 +1,8 @@
 mod capture;
 mod now_playing;
 mod source;
+#[cfg(target_os = "windows")]
+pub(crate) mod uia;
 
 use std::io;
 use std::sync::{Arc, OnceLock, RwLock};
@@ -378,6 +380,10 @@ mod tests {
             app_id: Some("AmazonMusic.exe".to_string()),
             is_amazon: true,
             album_art: None,
+            metadata_source: None,
+            source_title: None,
+            source_artist: None,
+            uia_attempt: None,
         }
     }
 
