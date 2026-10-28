@@ -54,9 +54,17 @@ const CRITICAL_FILES = [
   'src/services/httpRetry.ts',
   'src/services/artistTitleMemory.ts',
   'src/services/lookupOutcome.ts',
+  'src/services/manualLyricsStore.ts',
+  'src/services/manualSync.ts',
 ];
 
-const RUST_EXCLUDES = [/[/\\]src-tauri[/\\]src[/\\]main\.rs$/, /[/\\]src-tauri[/\\]build\.rs$/, /[/\\]src-tauri[/\\]gen[/\\]/];
+const RUST_EXCLUDES = [
+  /[/\\]src-tauri[/\\]src[/\\]main\.rs$/,
+  /[/\\]src-tauri[/\\]build\.rs$/,
+  /[/\\]src-tauri[/\\]gen[/\\]/,
+  // Development-only examples (the spec 18 UIA tree probe) are not shipped code.
+  /[/\\]src-tauri[/\\]examples[/\\]/,
+];
 
 interface LineCount {
   total: number;
