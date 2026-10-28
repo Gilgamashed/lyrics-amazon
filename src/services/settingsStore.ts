@@ -18,7 +18,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
 const THEMES: WindowTheme[] = ['acrylic', 'midnight', 'obsidian', 'cyan'];
 const FONT_SIZES: AppSettings['window']['fontSize'][] = ['small', 'medium', 'large', 'xlarge'];
-const VIEW_MODES: ViewMode[] = ['karaoke', 'sheet'];
+const VIEW_MODES: ViewMode[] = ['karaoke', 'sheet', 'manual'];
 const BACKGROUNDS: BackgroundTheme[] = ['amazon-music', 'studio', 'minimal'];
 const LAYOUTS: LayoutPresetId[] = ['compact', 'standard', 'wide'];
 

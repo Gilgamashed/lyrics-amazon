@@ -5,6 +5,7 @@ import { getSavedAILyrics } from './aiLyricsStore';
 import { saveAcceptedLyrics } from './userLyricsStore';
 import { fetchLyrics, parseLrc } from './lyricsService';
 import { synthesizeLyrics } from './aiService';
+import { buildManualLyrics, getManualLyrics, saveManualLyrics } from './manualLyricsStore';
 
 vi.mock('./aiService', { spy: true });
 
@@ -503,5 +504,59 @@ describe('fetchLyrics', () => {
       expect(onOutcome.mock.calls[0][0]).toBe('gate-rejected');
       expect(onOutcome.mock.calls.some((c) => c[0] === 'not-found')).toBe(false);
     });
+  });
+});
+// Spec 19: user-authored lyrics are the first source, and Skip bypasses them
+// for exactly one request without deleting anything.
+describe('fetchLyrics manual priority (spec 19)', () => {
+  const fetchMock = vi.fn();
+
+  beforeEach(() => {
+    fetchMock.mockReset();
+    vi.stubGlobal('fetch', fetchMock);
+    localStorage.clear();
+    clearLyricsCache();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('returns the saved manual lyrics without touching the network', async () => {
+    saveManualLyrics(SONG, buildManualLyrics(SONG, 'My own line'));
+    const onOutcome = vi.fn();
+
+    const result = await fetchLyrics(SONG, { onOutcome });
+
+    expect(result?.provider).toBe('Manual');
+    expect(result?.plainLyrics).toBe('My own line');
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(onOutcome).toHaveBeenCalledWith('found', { provider: 'Manual' });
+  });
+
+  it('outranks the thumbs-up store', async () => {
+    saveManualLyrics(SONG, buildManualLyrics(SONG, 'Manual line'));
+    saveAcceptedLyrics(SONG, makeAccepted('Accepted line'));
+
+    const result = await fetchLyrics(SONG);
+
+    expect(result?.provider).toBe('Manual');
+    expect(result?.plainLyrics).toBe('Manual line');
+  });
+
+  it('skips the manual entry for one request without deleting it', async () => {
+    saveManualLyrics(SONG, buildManualLyrics(SONG, 'Manual line'));
+    fetchMock.mockResolvedValue(
+      jsonOk({ syncedLyrics: '[00:01.00] Provider line', plainLyrics: 'Provider line' })
+    );
+
+    const result = await fetchLyrics(SONG, { skipManual: true, useCache: false });
+
+    expect(result?.provider).toBe('LRCLIB');
+    expect(fetchMock).toHaveBeenCalled();
+    // The saved manual entry survives the skip.
+    expect(getManualLyrics(SONG)?.plainLyrics).toBe('Manual line');
   });
 });

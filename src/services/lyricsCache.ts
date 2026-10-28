@@ -120,6 +120,21 @@ export function clearLyricsCache(): void {
   }
 }
 
+/**
+ * Removes one song from the cache (spec 19).
+ *
+ * Manual lyrics are written through to the cache, so deleting the manual
+ * entry must also evict the cached copy - otherwise the deleted lyrics keep
+ * rendering.
+ */
+export function removeCachedLyrics(song: Song): boolean {
+  const key = cacheKey(song);
+  const existed = cache.delete(key);
+  accessOrder = accessOrder.filter((entry) => entry !== key);
+  if (existed) persist();
+  return existed;
+}
+
 export function getCacheStats(): { size: number; maxEntries: number } {
   return { size: cache.size, maxEntries: MAX_ENTRIES };
 }

@@ -52,6 +52,7 @@ export interface LyricsData {
     | 'Lyrica'
     | 'AI Sync'
     | 'Amazon Music'
+    | 'Manual'
     | 'None';
   annotations: GeniusAnnotation[];
   trivia: string[];
@@ -62,7 +63,7 @@ export interface LyricsData {
   };
 }
 
-export type ViewMode = 'karaoke' | 'sheet';
+export type ViewMode = 'karaoke' | 'sheet' | 'manual';
 export type WindowTheme = 'acrylic' | 'midnight' | 'obsidian' | 'cyan';
 export type FontSize = 'small' | 'medium' | 'large' | 'xlarge';
 export type BackgroundTheme = 'amazon-music' | 'studio' | 'minimal';

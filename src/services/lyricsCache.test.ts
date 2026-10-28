@@ -4,6 +4,7 @@ import {
   clearLyricsCache,
   getCachedLyrics,
   getCacheStats,
+  removeCachedLyrics,
   setCachedLyrics,
 } from './lyricsCache';
 
@@ -199,5 +200,24 @@ describe('lyricsCache', () => {
     expect(() => setCachedLyrics(makeSong('A'), makeData('A'))).not.toThrow();
     expect(getCachedLyrics(makeSong('A'))).not.toBeNull();
     spy.mockRestore();
+  });
+
+  it('removes a single song from the cache (spec 19)', () => {
+    setCachedLyrics(makeSong('A'), makeData('A'));
+    setCachedLyrics(makeSong('B'), makeData('B'));
+
+    expect(removeCachedLyrics(makeSong('A'))).toBe(true);
+    expect(getCachedLyrics(makeSong('A'))).toBeNull();
+    expect(getCachedLyrics(makeSong('B'))).not.toBeNull();
+    // Removing something that is not cached is a no-op.
+    expect(removeCachedLyrics(makeSong('C'))).toBe(false);
+  });
+
+  it('evicts the persisted copy when a single song is removed', () => {
+    setCachedLyrics(makeSong('A'), makeData('A'));
+    removeCachedLyrics(makeSong('A'));
+
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) as string);
+    expect(Object.keys(stored)).toEqual([]);
   });
 });

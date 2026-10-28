@@ -3,6 +3,7 @@ import { getCachedLyrics, setCachedLyrics } from './lyricsCache';
 import { resolveAIConfig, isAIConfigured, synthesizeLyrics } from './aiService';
 import { getSavedAILyrics, saveAILyrics } from './aiLyricsStore';
 import { getAcceptedLyrics } from './userLyricsStore';
+import { getManualLyrics } from './manualLyricsStore';
 import { runProviderChain } from './providers/chain';
 import { LookupOutcome } from './lookupOutcome';
 import { debugLog } from './debugConsole';
@@ -15,6 +16,11 @@ export interface FetchLyricsOptions {
   startFromIndex?: number;
   signal?: AbortSignal;
   /**
+   * Bypasses the manual-lyrics stage for one request (spec 19, `Skip`).
+   * The saved manual entry is never deleted by a skip.
+   */
+  skipManual?: boolean;
+  /**
    * Reports how the lookup ended (spec 17, W3). A `transient-error` must be
    * surfaced as a retryable failure, never as "lyrics not found".
    */
@@ -22,11 +28,14 @@ export interface FetchLyricsOptions {
 }
 
 /**
- * Resolves lyrics in the canonical local-first order (spec 16):
- * accepted (user thumbs-up) -> saved AI (karaoke) -> session cache ->
- * provider chain (LRCLIB, Lyrica, Genius) -> live AI -> not found.
+ * Resolves lyrics in the canonical local-first order (spec 16, extended by
+ * spec 19):
+ * manual (spec 19) -> accepted (user thumbs-up) -> saved AI (karaoke) ->
+ * session cache -> provider chain (LRCLIB, Lyrica, Genius) -> live AI ->
+ * not found.
  *
- * Durable user decisions outrank the session cache inside one request.
+ * Durable user decisions outrank the session cache inside one request, and the
+ * user's own lyrics outrank every other source.
  * Returns `null` when the entire chain yields nothing (genuine "lyrics not found").
  */
 export async function fetchLyrics(
@@ -42,6 +51,16 @@ export async function fetchLyrics(
   debugLog('lookup', 'lookup.start', { key, useCache, startFromIndex });
 
   if (startFromIndex === 0) {
+    // User-authored lyrics take top priority (spec 19), ahead of thumbs-up.
+    if (!options?.skipManual) {
+      const manual = getManualLyrics(song);
+      if (manual) {
+        debugLog('cache', 'lookup.manual-hit', { key, provider: manual.provider });
+        report('found', 'Manual');
+        return manual;
+      }
+    }
+
     // User-accepted lyrics take top priority on a fresh lookup (thumbs-up).
     const accepted = getAcceptedLyrics(song);
     if (accepted) {
