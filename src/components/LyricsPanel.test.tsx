@@ -291,6 +291,9 @@ describe('LyricsPanel', () => {
     expect(screen.getByTestId('manual-sync-scroller')).toBeInTheDocument();
     expect(screen.queryByPlaceholderText('Search within lyrics...')).not.toBeInTheDocument();
     expect(screen.queryByText('Copy Sheet')).not.toBeInTheDocument();
+    // A fresh session cues the first line but does not activate it.
+    expect(screen.getAllByTestId('manual-sync-line')[0]).toHaveAttribute('data-next', 'true');
+    expect(screen.queryAllByTestId('manual-sync-line').some((row) => row.hasAttribute('data-active'))).toBe(false);
   });
 
   it('locks the view toggle and Delete while a session runs', () => {

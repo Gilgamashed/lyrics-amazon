@@ -848,8 +848,10 @@ describe('App', () => {
     expect(screen.getByTestId('manual-sync-scroller')).toBeInTheDocument();
     expect(screen.queryByPlaceholderText('Search within lyrics...')).not.toBeInTheDocument();
     let lines = screen.getAllByTestId('manual-sync-line');
-    expect(lines[0]).toHaveAttribute('aria-current', 'true');
-    expect(lines[1]).not.toHaveAttribute('aria-current');
+    // A fresh session cues the first line without activating it (spec 20 fix).
+    expect(lines[0]).toHaveAttribute('data-next', 'true');
+    expect(lines[0]).not.toHaveAttribute('data-active');
+    expect(lines[1]).not.toHaveAttribute('data-next');
 
     await act(async () => {
       fireEvent.keyDown(window, { key: 'Enter' });
@@ -857,8 +859,8 @@ describe('App', () => {
 
     // The highlight advanced to the next line.
     lines = screen.getAllByTestId('manual-sync-line');
-    expect(lines[0]).not.toHaveAttribute('aria-current');
-    expect(lines[1]).toHaveAttribute('aria-current', 'true');
+    expect(lines[0]).not.toHaveAttribute('data-active');
+    expect(lines[1]).toHaveAttribute('data-active', 'true');
 
     fireEvent.click(screen.getByTestId('manual-sync-save'));
 

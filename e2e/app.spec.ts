@@ -292,8 +292,16 @@ test.describe('Web UI against the native bridge', () => {
 
     await expect(page.getByTestId('manual-sync-scroller')).toBeVisible();
     await expect(page.getByPlaceholder('Search within lyrics...')).toHaveCount(0);
+    // A fresh session cues the first line without activating it.
     await expect(page.getByTestId('manual-sync-line').first()).toHaveAttribute(
-      'aria-current',
+      'data-next',
+      'true'
+    );
+    await expect(page.locator('[data-active="true"]')).toHaveCount(0);
+
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('manual-sync-line').first()).toHaveAttribute(
+      'data-active',
       'true'
     );
     await expect(page.getByTestId('view-karaoke')).toBeDisabled();

@@ -72,7 +72,7 @@ describe('ManualSyncLyricsView', () => {
     expect(screen.getByText('Third line')).toBeInTheDocument();
   });
 
-  it('marks only the pointer line as current', () => {
+  it('marks the pointer line as next without activating it on a fresh session', () => {
     render(
       <ManualSyncLyricsView
         lines={manualSyncLines(TEXT)}
@@ -85,22 +85,72 @@ describe('ManualSyncLyricsView', () => {
     );
 
     const rows = screen.getAllByTestId('manual-sync-line');
-    expect(rows[0]).not.toHaveAttribute('aria-current');
-    expect(rows[1]).toHaveAttribute('aria-current', 'true');
-    expect(rows[1]).toHaveAttribute('data-active', 'true');
-    expect(rows[2]).not.toHaveAttribute('aria-current');
+    expect(rows[0]).not.toHaveAttribute('data-next');
+    expect(rows[1]).toHaveAttribute('data-next', 'true');
+    expect(rows[1]).toHaveTextContent('Next');
+    // Nothing has been stamped yet, so nothing glows.
+    expect(rows[1]).not.toHaveAttribute('data-active');
+    expect(rows[1]).not.toHaveAttribute('aria-current');
+    expect(screen.queryByTestId('manual-sync-stamp')).not.toBeInTheDocument();
   });
 
-  it('moves the highlight when the pointer advances', () => {
-    const { rerender, view } = syncHarness();
+  it('activates the pointer line once a line has been stamped', () => {
+    const lines = manualSyncLines(TEXT);
+    lines[0].startTimeMs = 1000;
 
-    expect(screen.getAllByTestId('manual-sync-line')[0]).toHaveAttribute('aria-current', 'true');
+    render(
+      <ManualSyncLyricsView
+        lines={lines}
+        pointer={1}
+        state="syncing"
+        status="Syncing"
+        fontSize="medium"
+        autoScroll={false}
+      />
+    );
+
+    const rows = screen.getAllByTestId('manual-sync-line');
+    expect(rows[1]).toHaveAttribute('data-next', 'true');
+    expect(rows[1]).toHaveAttribute('data-active', 'true');
+    expect(rows[1]).toHaveAttribute('aria-current', 'true');
+    // The recorded line is dimmed and keeps its chip.
+    expect(rows[0]).not.toHaveAttribute('data-active');
+    expect(rows[0]).toHaveClass('opacity-45');
+  });
+
+  it('keeps the cue and the chip on the stamped last line', () => {
+    const lines = manualSyncLines(TEXT);
+    lines[2].startTimeMs = 12_000;
+
+    render(
+      <ManualSyncLyricsView
+        lines={lines}
+        pointer={2}
+        state="syncing"
+        status="Syncing"
+        fontSize="medium"
+        autoScroll={false}
+      />
+    );
+
+    const last = screen.getAllByTestId('manual-sync-line')[2];
+    expect(last).toHaveAttribute('data-next', 'true');
+    expect(last).toHaveAttribute('data-active', 'true');
+    expect(last).toHaveTextContent('0:12.0');
+  });
+
+  it('moves the active highlight when the pointer advances', () => {
+    const lines = manualSyncLines(TEXT);
+    lines[0].startTimeMs = 1000;
+    const { rerender, view } = syncHarness({ lines, pointer: 1 });
+
+    expect(screen.getAllByTestId('manual-sync-line')[1]).toHaveAttribute('data-active', 'true');
 
     rerender(view({ pointer: 2 }));
 
     const rows = screen.getAllByTestId('manual-sync-line');
-    expect(rows[0]).not.toHaveAttribute('aria-current');
-    expect(rows[2]).toHaveAttribute('aria-current', 'true');
+    expect(rows[1]).not.toHaveAttribute('data-active');
+    expect(rows[2]).toHaveAttribute('data-active', 'true');
   });
 
   it('centers the highlighted line on every pointer change', () => {
@@ -134,7 +184,7 @@ describe('ManualSyncLyricsView', () => {
     );
 
     const rows = screen.getAllByTestId('manual-sync-line');
-    expect(rows[2]).toHaveAttribute('aria-current', 'true');
+    expect(rows[2]).toHaveAttribute('data-next', 'true');
   });
 
   it('shows a time chip on stamped lines', () => {

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef } from 'react';
+import { ChevronRight } from 'lucide-react';
 import { FontSize } from '../types/lyrics';
 import { ManualSyncLine, ManualSyncState } from '../services/manualSync';
 
@@ -25,11 +26,13 @@ function formatStamp(ms: number): string {
 }
 
 /**
- * The Manual Sync surface (spec 20, W2).
+ * The Manual Sync surface (spec 20, W2; corrected in v0.5.7-rc.3).
  *
  * Replaces the normal lyric viewers while a sync session runs: it lists the
- * session's own lines, highlights the one the next keypress will stamp and
- * keeps that line centered. It deliberately carries no search box, no copy
+ * session's own lines and marks the one the next keypress will stamp. That row
+ * always carries a muted "next" cue; the full active glow appears only once at
+ * least one line has been stamped, so a fresh session never looks like its
+ * first line is already claimed. It deliberately carries no search box, no copy
  * action and no click-to-seek - the only input is the keyboard.
  */
 export const ManualSyncLyricsView: React.FC<ManualSyncLyricsViewProps> = ({
@@ -99,6 +102,10 @@ export const ManualSyncLyricsView: React.FC<ManualSyncLyricsViewProps> = ({
 
   const fontClasses = getFontSizeClasses();
   const isPaused = state === 'paused';
+  // A fresh session has nothing recorded: the pointer row only gets the muted
+  // "next" cue, never the active glow, so it cannot look already claimed
+  // (spec 20 correction, v0.5.7-rc.3).
+  const hasStamps = lines.some((line) => line.startTimeMs !== null);
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="manual-sync-view">
@@ -128,39 +135,56 @@ export const ManualSyncLyricsView: React.FC<ManualSyncLyricsViewProps> = ({
             </p>
           ) : (
             lines.map((line, index) => {
-              const isCurrent = index === currentIndex;
+              const isNext = index === currentIndex;
+              const isActive = isNext && hasStamps;
               const isStamped = line.startTimeMs !== null;
 
               return (
                 <div
                   key={line.id}
-                  ref={isCurrent ? activeLineRef : null}
+                  ref={isNext ? activeLineRef : null}
                   data-testid="manual-sync-line"
-                  data-active={isCurrent ? 'true' : undefined}
-                  aria-current={isCurrent ? 'true' : undefined}
-                  className={`relative flex items-baseline justify-between gap-3 rounded-xl p-2 transition-all duration-300 ${
-                    isCurrent
+                  data-next={isNext ? 'true' : undefined}
+                  data-active={isActive ? 'true' : undefined}
+                  aria-current={isActive ? 'true' : undefined}
+                  className={`relative flex items-baseline gap-2 rounded-xl p-2 transition-all duration-300 ${
+                    isActive
                       ? 'scale-[1.02] transform bg-cyan-500/10'
                       : isStamped
                         ? 'opacity-45'
                         : 'opacity-90'
                   }`}
                 >
+                  <span aria-hidden="true" className="w-3 shrink-0 self-center">
+                    {isNext && <ChevronRight className="h-3.5 w-3.5 text-cyan-300/80" />}
+                  </span>
+
                   <p
                     className={`flex-1 transition-colors duration-200 ${
-                      isCurrent
+                      isActive
                         ? `${fontClasses.active} text-white glow-text font-bold`
-                        : `${fontClasses.inactive} text-slate-300/80`
+                        : isNext
+                          ? `${fontClasses.inactive} text-slate-100`
+                          : `${fontClasses.inactive} text-slate-300/80`
                     }`}
                   >
                     {line.text}
                   </p>
 
+                  {isNext && (
+                    <span
+                      data-testid="manual-sync-next"
+                      className="shrink-0 rounded-full border border-cyan-400/30 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-cyan-300/80"
+                    >
+                      Next
+                    </span>
+                  )}
+
                   {isStamped && (
                     <span
                       data-testid="manual-sync-stamp"
                       className={`shrink-0 font-mono text-[10px] tabular-nums ${
-                        isCurrent ? 'text-cyan-200' : 'text-slate-500'
+                        isActive ? 'text-cyan-200' : 'text-slate-500'
                       }`}
                     >
                       {formatStamp(line.startTimeMs ?? 0)}
