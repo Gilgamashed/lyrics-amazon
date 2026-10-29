@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Amazon Music Floating Lyrics",
-  "version": "0.5.7-rc.1",
+  "version": "0.5.7-rc.2",
   "identifier": "com.lyrics.amazonmusic",
   "build": {
     "frontendDist": "../dist",
