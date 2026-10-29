@@ -3,7 +3,7 @@
 **Project:** Lyrics for Amazon Music (Amazon Music Floating Lyrics)  
 **Track:** Post-MVP (follows `specs/19_SPEC_POSTMVP-MANUAL-LYRICS-AND-SYNC.md`; see Delivery Roadmap in `specs/PROJECT_OVERVIEW.MD` §5)  
 **Governed by:** `specs/00_AI-SAFE.md` (SpecDD)  
-**Target Release:** `0.5.7-rc.2` (published to `test-latest` channel)
+**Target Release:** `0.5.7-rc.2` (published to `test-latest`; corrected by `0.5.7-rc.3`, see §3.5)
 
 ---
 
@@ -78,8 +78,8 @@ Because the surface is chosen by the panel, removing the search feature is a str
 
 | Line position | Look |
 | :--- | :--- |
-| `index === pointer` | Active: `glow-text`, bold, `scale-[1.02]`, cyan tint; `aria-current="true"`, `data-active="true"` |
-| `startTimeMs !== null` (already stamped) | Past: dimmed, with an `m:ss.d` time chip |
+| `index === pointer` | **Pointer row** (the next line to stamp): always a muted chevron + `Next` pill; the active glow is added only once a line has been stamped — see §3.5 |
+| `startTimeMs !== null` (already stamped) | Recorded: dimmed, with an `m:ss.d` time chip (unless it is also the pointer row) |
 | otherwise | Upcoming: neutral |
 
 The pointer is clamped by the reducer (`Math.min(index + 1, lines.length - 1)`), so repeated `Enter` on the last line re-stamps the same row and the highlight stays put. The stamp itself does not move the view unless the pointer changed.
@@ -102,7 +102,25 @@ container.scrollTo({ top: Math.max(0, target), behavior: 'smooth' })
 - The three view buttons get `disabled={syncActive}`. `Edit` is already disabled during a session.
 - Footer: `Delete` is disabled, `Skip` stays enabled, `Manual Sync` stays disabled, and `Save`/`Cancel` remain the session exits.
 
-### 3.5 App wiring
+### 3.5 Correction (v0.5.7-rc.3) — the pointer row is "next", not "current"
+
+Live testing of `v0.5.7-rc.2` found an off-by-one. The pointer row was painted with the full active styling from the moment a session started, so the first line looked already claimed. Users waited for the second lyric before the first press, which gave line 1 the second line's timestamp; with N lines they made N−1 presses, leaving the last line highlighted but never stamped.
+
+`pointer` still means "the next line to stamp"; only its presentation changes (this supersedes the single-state description in §3.2):
+
+| Session state | Pointer row | Recorded rows |
+| :--- | :--- | :--- |
+| **Armed** — no timestamp yet | muted chevron + `Next` pill; no glow, no scale | — |
+| **Active** — at least one timestamp | muted cue **+** glow, bold, `scale-[1.02]`, cyan tint | dimmed + `m:ss.d` chip |
+
+- `data-next="true"` marks the pointer row in both states; `data-active="true"` and `aria-current="true"` only in the active state.
+- A recorded row that is also the pointer (the clamped last line, or a `Backspace` target) keeps its chip and takes the glow instead of the dimming.
+- Centering still follows the pointer row in both states.
+- The reducer, the `pointer` semantics, the key map and the re-arm window are unchanged.
+
+**Consequence:** N presses stamp N lines — the first line receives the first press's timestamp and the last press stamps the last line.
+
+### 3.6 App wiring
 
 `App.tsx` passes `syncSession={syncSession}` instead of the derived string/boolean. No reducer, handler or effect changes: `stampManualSync`/`stepBackManualSync` already return a new session object, so the pointer reaches the view through normal state.
 
@@ -157,7 +175,8 @@ container.scrollTo({ top: Math.max(0, target), behavior: 'smooth' })
 - **W2:** A running session renders the working line list; the pointer line is highlighted; stamped lines show their timestamp; the search input and Copy action are absent.
 - **W3:** The highlight follows `Enter`/`Backspace`; the highlighted line is centered when Auto-Scroll is on and stays still when it is off; the view toggle and Delete are disabled for the session; the normal Manual, Karaoke and Full Sheet views are unchanged.
 - **W4:** Unit + Rust + E2E green; coverage gate green; no reducer, lookup or play-count regression.
-- **W5:** `v0.5.7-rc.2` published to `test-latest`; docs updated.
+- **Correction (v0.5.7-rc.3):** a fresh session cues line 1 with `Next` but does not activate it; N presses stamp N lines; the last line ends stamped and highlighted; the cue and glow follow `Backspace` and centering.
+- **W5:** `v0.5.7-rc.2` published to `test-latest`; docs updated; the correction shipped as `v0.5.7-rc.3`.
 
 ---
 
