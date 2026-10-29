@@ -3,7 +3,9 @@ import { LyricsData, WindowState, FeedbackState, KaraokeAIStatus } from '../type
 import { KaraokeLyricsView } from './KaraokeLyricsView';
 import { FullSheetLyricsView } from './FullSheetLyricsView';
 import { ManualLyricsView } from './ManualLyricsView';
+import { ManualSyncLyricsView } from './ManualSyncLyricsView';
 import { ManualLyricsEditor } from './ManualLyricsEditor';
+import { ManualSyncSession, describeManualSync } from '../services/manualSync';
 import { InfoPanel } from './InfoPanel';
 import {
   Info,
@@ -57,10 +59,8 @@ interface LyricsPanelProps {
   onDeleteManual?: () => void;
   /** Runs one provider lookup without the manual lyrics. */
   onSkipManual?: () => void;
-  /** Status of the running sync session (spec 19, W3). */
-  syncStatus?: string;
-  /** A sync session is active (locks the editor). */
-  syncActive?: boolean;
+  /** The running (or just aborted) sync session (spec 19 W3, spec 20 W3). */
+  syncSession?: ManualSyncSession | null;
   onStartSync?: () => void;
   onCancelSync?: () => void;
   onSaveSync?: () => void;
@@ -100,8 +100,7 @@ export const LyricsPanel: React.FC<LyricsPanelProps> = ({
   onCancelEdit,
   onDeleteManual,
   onSkipManual,
-  syncStatus,
-  syncActive = false,
+  syncSession = null,
   onStartSync,
   onCancelSync,
   onSaveSync,
@@ -134,6 +133,10 @@ export const LyricsPanel: React.FC<LyricsPanelProps> = ({
   // the provider index does not exist for the Manual provider (spec 19).
   const isManualProvider = lyricsData.provider === 'Manual';
 
+  // A session owns the surface, the view toggle and the editor (spec 20, D2).
+  const syncActive = syncSession !== null && syncSession.state !== 'aborted';
+  const syncStatus = syncSession ? describeManualSync(syncSession) : undefined;
+
   return (
     <div
       className={`relative h-full min-h-0 flex flex-col rounded-2xl border border-white/15 overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.5)] ${themeClass}`}
@@ -160,7 +163,9 @@ export const LyricsPanel: React.FC<LyricsPanelProps> = ({
             <button
               type="button"
               onClick={() => onUpdateWindowState({ viewMode: 'karaoke' })}
-              className={`px-2 sm:px-2.5 py-1 text-xs font-semibold rounded-md transition-all whitespace-nowrap ${
+              disabled={syncActive}
+              data-testid="view-karaoke"
+              className={`px-2 sm:px-2.5 py-1 text-xs font-semibold rounded-md transition-all whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed ${
                 windowState.viewMode === 'karaoke'
                   ? 'bg-cyan-500 text-slate-950 shadow-sm'
                   : 'text-slate-300 hover:text-white'
@@ -171,7 +176,9 @@ export const LyricsPanel: React.FC<LyricsPanelProps> = ({
             <button
               type="button"
               onClick={() => onUpdateWindowState({ viewMode: 'sheet' })}
-              className={`px-2 sm:px-2.5 py-1 text-xs font-semibold rounded-md transition-all whitespace-nowrap ${
+              disabled={syncActive}
+              data-testid="view-sheet"
+              className={`px-2 sm:px-2.5 py-1 text-xs font-semibold rounded-md transition-all whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed ${
                 windowState.viewMode === 'sheet'
                   ? 'bg-cyan-500 text-slate-950 shadow-sm'
                   : 'text-slate-300 hover:text-white'
@@ -183,8 +190,9 @@ export const LyricsPanel: React.FC<LyricsPanelProps> = ({
               <button
                 type="button"
                 onClick={() => onUpdateWindowState({ viewMode: 'manual' })}
+                disabled={syncActive}
                 data-testid="view-manual"
-                className={`px-2 sm:px-2.5 py-1 text-xs font-semibold rounded-md transition-all whitespace-nowrap ${
+                className={`px-2 sm:px-2.5 py-1 text-xs font-semibold rounded-md transition-all whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed ${
                   windowState.viewMode === 'manual'
                     ? 'bg-cyan-500 text-slate-950 shadow-sm'
                     : 'text-slate-300 hover:text-white'
@@ -376,21 +384,32 @@ export const LyricsPanel: React.FC<LyricsPanelProps> = ({
               onCancel={() => onCancelEdit?.()}
             />
           ) : windowState.viewMode === 'manual' && manualEntry ? (
-            <ManualLyricsView
-              lyrics={manualEntry.syncedLyrics}
-              plainLyrics={manualEntry.plainLyrics}
-              songTitle={manualEntry.title}
-              artist={manualEntry.artist}
-              fontSize={windowState.fontSize}
-              autoScroll={windowState.autoScroll}
-              currentTimeMs={currentTimeMs}
-              syncOffsetMs={syncOffsetMs}
-              onSeek={onSeek}
-              isLoading={isLoadingLyrics}
-              lookupOutcome={lookupOutcome}
-              onRetryLookup={onRetryLookup}
-              syncStatus={syncStatus}
-            />
+            syncActive && syncSession ? (
+              <ManualSyncLyricsView
+                lines={syncSession.lines}
+                pointer={syncSession.pointer}
+                state={syncSession.state}
+                status={describeManualSync(syncSession)}
+                fontSize={windowState.fontSize}
+                autoScroll={windowState.autoScroll}
+              />
+            ) : (
+              <ManualLyricsView
+                lyrics={manualEntry.syncedLyrics}
+                plainLyrics={manualEntry.plainLyrics}
+                songTitle={manualEntry.title}
+                artist={manualEntry.artist}
+                fontSize={windowState.fontSize}
+                autoScroll={windowState.autoScroll}
+                currentTimeMs={currentTimeMs}
+                syncOffsetMs={syncOffsetMs}
+                onSeek={onSeek}
+                isLoading={isLoadingLyrics}
+                lookupOutcome={lookupOutcome}
+                onRetryLookup={onRetryLookup}
+                syncStatus={syncStatus}
+              />
+            )
           ) : windowState.viewMode === 'karaoke' ? (
             <KaraokeLyricsView
               lyrics={lyricsData.syncedLyrics}
@@ -446,9 +465,13 @@ export const LyricsPanel: React.FC<LyricsPanelProps> = ({
                 <button
                   type="button"
                   onClick={onDeleteManual}
-                  disabled={!onDeleteManual}
+                  disabled={!onDeleteManual || syncActive}
                   data-testid="manual-delete"
-                  title="Delete the saved manual lyrics for this song"
+                  title={
+                    syncActive
+                      ? 'Finish or cancel the sync session before deleting the lyrics'
+                      : 'Delete the saved manual lyrics for this song'
+                  }
                   className="flex items-center gap-1 rounded-md border border-white/10 bg-slate-800 px-1.5 py-0.5 text-[10px] font-semibold text-rose-300 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <Trash2 className="h-3 w-3" /> Delete

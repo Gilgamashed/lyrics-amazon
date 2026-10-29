@@ -280,4 +280,22 @@ test.describe('Web UI against the native bridge', () => {
     await expect(page.getByTestId('manual-skip')).toBeVisible();
     await expect(page.getByTestId('thumbs-up')).toBeDisabled();
   });
+
+  // Spec 20: sync mode gets its own surface with no lyrics search.
+  test('runs a manual sync session on a dedicated, search-free surface', async ({ page }) => {
+    await seedManualLyrics(page);
+    await page.goto('/');
+    await expect(trackTitle(page)).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText('Provider: Manual')).toBeVisible();
+
+    await page.getByTestId('manual-sync').click();
+
+    await expect(page.getByTestId('manual-sync-scroller')).toBeVisible();
+    await expect(page.getByPlaceholder('Search within lyrics...')).toHaveCount(0);
+    await expect(page.getByTestId('manual-sync-line').first()).toHaveAttribute(
+      'aria-current',
+      'true'
+    );
+    await expect(page.getByTestId('view-karaoke')).toBeDisabled();
+  });
 });

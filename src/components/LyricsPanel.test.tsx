@@ -2,8 +2,24 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { LyricsPanel } from './LyricsPanel';
 import { makeLyrics, makeWindowState } from '../test/fixtures';
+import {
+  createManualSyncSession,
+  startManualSync,
+  stampManualSync,
+} from '../services/manualSync';
 
 type Props = Parameters<typeof LyricsPanel>[0];
+
+/** A running session over the three-line fixture text. */
+function syncSession(stamped = 0) {
+  let session = startManualSync(
+    createManualSyncSession('First line\nSecond line\nThird line', 'raw-key')
+  );
+  for (let index = 0; index < stamped; index += 1) {
+    session = stampManualSync(session, (index + 1) * 1000);
+  }
+  return session;
+}
 
 function renderPanel(overrides: Partial<Props> = {}) {
   const onOffsetChange = vi.fn();
@@ -206,7 +222,7 @@ describe('LyricsPanel', () => {
   });
 
   it('locks the editor while a sync session is running', () => {
-    renderPanel({ isEditing: true, syncActive: true });
+    renderPanel({ isEditing: true, syncSession: syncSession() });
     expect(screen.getByTestId('manual-editor-locked')).toBeInTheDocument();
     expect(screen.getByTestId('manual-edit')).toBeDisabled();
   });
@@ -255,7 +271,7 @@ describe('LyricsPanel', () => {
     renderPanel({
       hasManualLyrics: true,
       manualEntry: manualEntry(),
-      syncActive: true,
+      syncSession: syncSession(),
       onSaveSync: vi.fn(),
       onCancelSync: vi.fn(),
     });
@@ -264,14 +280,57 @@ describe('LyricsPanel', () => {
     expect(screen.getAllByTestId('manual-sync-cancel').length).toBeGreaterThan(0);
   });
 
-  it('shows the sync status inside the Manual view', () => {
+  it('renders the sync surface without the lyrics search bar', () => {
     renderPanel({
       windowState: makeWindowState({ viewMode: 'manual' }),
       hasManualLyrics: true,
       manualEntry: manualEntry(),
-      syncStatus: 'Syncing - line 1/1 (0 stamped)',
+      syncSession: syncSession(),
+    });
+
+    expect(screen.getByTestId('manual-sync-scroller')).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText('Search within lyrics...')).not.toBeInTheDocument();
+    expect(screen.queryByText('Copy Sheet')).not.toBeInTheDocument();
+  });
+
+  it('locks the view toggle and Delete while a session runs', () => {
+    renderPanel({
+      windowState: makeWindowState({ viewMode: 'manual' }),
+      hasManualLyrics: true,
+      manualEntry: manualEntry(),
+      syncSession: syncSession(),
+      onSkipManual: vi.fn(),
+    });
+
+    expect(screen.getByTestId('view-karaoke')).toBeDisabled();
+    expect(screen.getByTestId('view-sheet')).toBeDisabled();
+    expect(screen.getByTestId('view-manual')).toBeDisabled();
+    expect(screen.getByTestId('manual-delete')).toBeDisabled();
+    // Skip stays available (spec 20, D1).
+    expect(screen.getByTestId('manual-skip')).toBeEnabled();
+  });
+
+  it('shows the sync status on the sync surface', () => {
+    renderPanel({
+      windowState: makeWindowState({ viewMode: 'manual' }),
+      hasManualLyrics: true,
+      manualEntry: manualEntry(),
+      syncSession: syncSession(),
     });
 
     expect(screen.getByTestId('manual-sync-status')).toHaveTextContent('Syncing');
+  });
+
+  it('falls back to the Manual view once the session is aborted', () => {
+    renderPanel({
+      windowState: makeWindowState({ viewMode: 'manual' }),
+      hasManualLyrics: true,
+      manualEntry: manualEntry(),
+      syncSession: { ...syncSession(), state: 'aborted' },
+    });
+
+    expect(screen.queryByTestId('manual-sync-scroller')).not.toBeInTheDocument();
+    expect(screen.getByTestId('manual-sync-status')).toHaveTextContent('Aborted');
+    expect(screen.getByTestId('view-karaoke')).toBeEnabled();
   });
 });

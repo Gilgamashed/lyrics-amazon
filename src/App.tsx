@@ -53,7 +53,6 @@ import {
   ManualSyncSession,
   abortManualSync,
   createManualSyncSession,
-  describeManualSync,
   manualSyncToLyricLines,
   pauseManualSync,
   rearmManualSync,
@@ -1142,8 +1141,7 @@ export default function App() {
               onCancelEdit={handleCancelEdit}
               onDeleteManual={handleDeleteManual}
               onSkipManual={handleSkipManual}
-              syncStatus={syncSession ? describeManualSync(syncSession) : undefined}
-              syncActive={syncSession !== null && syncSession.state !== 'aborted'}
+              syncSession={syncSession}
               onStartSync={handleStartSync}
               onCancelSync={handleCancelSync}
               onSaveSync={handleSaveSync}

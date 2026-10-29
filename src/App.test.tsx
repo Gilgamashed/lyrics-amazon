@@ -843,9 +843,22 @@ describe('App', () => {
     fireEvent.click(screen.getByTestId('manual-editor-save'));
 
     fireEvent.click(screen.getByTestId('manual-sync'));
+
+    // The sync surface replaces the viewers and has no lyrics search (spec 20).
+    expect(screen.getByTestId('manual-sync-scroller')).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText('Search within lyrics...')).not.toBeInTheDocument();
+    let lines = screen.getAllByTestId('manual-sync-line');
+    expect(lines[0]).toHaveAttribute('aria-current', 'true');
+    expect(lines[1]).not.toHaveAttribute('aria-current');
+
     await act(async () => {
       fireEvent.keyDown(window, { key: 'Enter' });
     });
+
+    // The highlight advanced to the next line.
+    lines = screen.getAllByTestId('manual-sync-line');
+    expect(lines[0]).not.toHaveAttribute('aria-current');
+    expect(lines[1]).toHaveAttribute('aria-current', 'true');
 
     fireEvent.click(screen.getByTestId('manual-sync-save'));
 
